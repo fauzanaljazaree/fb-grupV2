@@ -1,0 +1,321 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FB Auto Poster - Dashboard</title>
+  <style>
+    :root {
+      --bg: #0f1117;
+      --panel: #1a1d27;
+      --panel-2: #222634;
+      --border: #2c3142;
+      --text: #e6e9f0;
+      --muted: #8a91a5;
+      --accent: #3b82f6;
+      --accent-hover: #2f6fe0;
+      --green: #22c55e;
+      --red: #ef4444;
+      --amber: #f59e0b;
+      --cyan: #22d3ee;
+      --radius: 12px;
+      --shadow: 0 8px 30px rgba(0, 0, 0, 0.35);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { height: 100%; }
+    body {
+      font-family: "Segoe UI", system-ui, -apple-system, Roboto, sans-serif;
+      background: radial-gradient(1200px 600px at 20% -10%, #1b2340 0%, transparent 55%),
+                  radial-gradient(1000px 500px at 90% 110%, #1a2436 0%, transparent 50%),
+                  var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      padding: 24px;
+    }
+
+    /* Header */
+    header.header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      padding: 18px 24px;
+      background: linear-gradient(135deg, #1c2340, #151927);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      margin-bottom: 22px;
+    }
+    .header .brand { display: flex; align-items: center; gap: 14px; }
+    .header .logo {
+      width: 42px; height: 42px; border-radius: 10px;
+      background: linear-gradient(135deg, var(--accent), #7c3aed);
+      display: grid; place-items: center; font-weight: 800; font-size: 20px;
+      box-shadow: 0 4px 16px rgba(59,130,246,.4);
+    }
+    .header h1 { font-size: 20px; font-weight: 700; letter-spacing: .2px; }
+    .header .subtitle { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+    .status-pill {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 8px 16px; border-radius: 999px; font-size: 13px; font-weight: 600;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .status-pill .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+    .status-pill.running .dot { background: var(--green); box-shadow: 0 0 0 4px rgba(34,197,94,.18); animation: pulse 1.4s infinite; }
+    .status-pill.paused .dot { background: var(--amber); }
+    @keyframes pulse { 50% { opacity: .35; } }
+
+    /* Layout grid */
+    main.grid { display: grid; grid-template-columns: repeat(12, 1fr); gap: 20px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      box-shadow: var(--shadow);
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .span-5 { grid-column: span 5; }
+    .span-6 { grid-column: span 6; }
+    .span-7 { grid-column: span 7; }
+    .span-12 { grid-column: span 12; }
+
+    .card h2 {
+      font-size: 15px; font-weight: 700; letter-spacing: .3px;
+      display: flex; align-items: center; gap: 10px;
+      padding-bottom: 12px; border-bottom: 1px solid var(--border);
+    }
+    .card h2 .ic {
+      width: 30px; height: 30px; border-radius: 8px;
+      display: grid; place-items: center; font-size: 15px;
+      background: var(--panel-2); border: 1px solid var(--border);
+    }
+    /* Buttons */
+    .btn {
+      display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+      border: 1px solid var(--border); background: var(--panel-2);
+      color: var(--text); font-size: 13.5px; font-weight: 600;
+      padding: 9px 16px; border-radius: 9px; cursor: pointer;
+      transition: all .15s ease; user-select: none; white-space: nowrap;
+    }
+    .btn:hover { border-color: var(--accent); filter: brightness(1.1); }
+    .btn:disabled { opacity: .45; cursor: not-allowed; filter: none; }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .btn.primary:hover { background: var(--accent-hover); }
+    .btn.success { background: var(--green); border-color: var(--green); color: #fff; }
+    .btn.danger { background: var(--red); border-color: var(--red); color: #fff; }
+    .btn.ghost { background: transparent; }
+    .btn.warn { background: var(--amber); border-color: var(--amber); color: #1a1a1a; }
+    .btn.sm { padding: 6px 11px; font-size: 12.5px; border-radius: 8px; }
+    .actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+    /* Inputs */
+    .field { display: flex; flex-direction: column; gap: 6px; }
+    .field label { font-size: 12.5px; font-weight: 600; color: var(--muted); }
+    input[type="text"], input[type="number"], input[type="search"], select {
+      background: var(--panel-2); border: 1px solid var(--border);
+      border-radius: 9px; color: var(--text); padding: 9px 12px;
+      font-size: 13.5px; outline: none; width: 100%;
+      transition: border .15s ease;
+    }
+    input:focus, select:focus { border-color: var(--accent); }
+    input[type="file"] { max-width: 100%; }
+    input[type="checkbox"] { accent-color: var(--accent); width: 16px; height: 16px; cursor: pointer; }
+    .form-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 14px; }
+    .form-grid .full { grid-column: span 2; }
+    /* Table */
+    .tbl-wrap { overflow: auto; max-height: 300px; border: 1px solid var(--border); border-radius: 10px; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; min-width: 520px; }
+    thead th {
+      position: sticky; top: 0; background: var(--panel-2); z-index: 2;
+      text-align: left; padding: 10px 12px; font-weight: 700; font-size: 12px;
+      color: var(--muted); text-transform: uppercase; letter-spacing: .4px;
+      border-bottom: 1px solid var(--border);
+    }
+    tbody td { padding: 9px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+    tbody tr:last-child td { border-bottom: none; }
+    tbody tr:hover { background: rgba(59,130,246,.05); }
+    .cap-cell { max-width: 300px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .badge { display: inline-flex; align-items: center; padding: 3px 9px; border-radius: 999px; font-size: 11.5px; font-weight: 700; }
+    .badge.ok { background: rgba(34,197,94,.16); color: var(--green); border: 1px solid rgba(34,197,94,.3); }
+    .badge.no { background: rgba(239,68,68,.14); color: var(--red); border: 1px solid rgba(239,68,68,.3); }
+    .badge.info { background: rgba(59,130,246,.16); color: var(--accent); border: 1px solid rgba(59,130,246,.3); }
+    .badge.warn { background: rgba(245,158,11,.15); color: var(--amber); border: 1px solid rgba(245,158,11,.3); }
+    .toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+    .toolbar .grow { flex: 1; min-width: 180px; }
+    .count-chip { font-size: 12px; color: var(--muted); }
+    /* Terminal */
+    .terminal {
+      background: #0b0d12; border: 1px solid var(--border); border-radius: 10px;
+      font-family: "Cascadia Code", Consolas, "Courier New", monospace;
+      font-size: 12.5px; line-height: 1.7; height: 260px; overflow-y: auto;
+      padding: 14px; white-space: pre-wrap; word-break: break-word;
+    }
+    .terminal .line { display: flex; gap: 8px; }
+    .terminal .t { color: var(--muted); flex-shrink: 0; }
+    .terminal .ok { color: var(--green); }
+    .terminal .err { color: var(--red); }
+    .terminal .warn { color: var(--amber); }
+    .terminal .info { color: var(--cyan); }
+    .terminal .mut { color: var(--muted); }
+    .empty { text-align: center; color: var(--muted); padding: 26px 10px; font-size: 13px; }
+    .hint { font-size: 12px; color: var(--muted); line-height: 1.6; }
+    .hint b { color: var(--text); }
+    footer { margin-top: 22px; text-align: center; color: var(--muted); font-size: 12px; }
+    @media (max-width: 1000px) {
+      .span-5, .span-6, .span-7 { grid-column: span 12; }
+      body { padding: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <div class="brand">
+      <div class="logo">FB</div>
+      <div>
+        <h1>FB Auto Poster</h1>
+        <div class="subtitle">Posting otomatis anti-bot stealth untuk grup Facebook</div>
+      </div>
+    </div>
+    <div class="status-pill" id="statusPill">
+      <span class="dot"></span>
+      <span id="statusText">Idle</span>
+    </div>
+  </header>
+
+  <main class="grid">
+
+    <!-- ============ MATERI & MEDIA ============ -->
+    <section class="card span-7">
+      <h2><span class="ic">📦</span> Materi &amp; Media</h2>
+      <div class="actions">
+        <div class="field">
+          <label>Import Materi (Excel / CSV)</label>
+          <input type="file" id="excelInput" accept=".xlsx,.csv" />
+        </div>
+        <div class="field">
+          <label>Folder Media Lokal</label>
+          <input type="file" id="folderInput" webkitdirectory multiple />
+        </div>
+      </div>
+      <div class="hint">
+        Kolom yang dibaca: <b>Caption</b> &amp; <b>Media_Name</b>. Caption mendukung
+        <b>Spintax</b> <code>{varian1|varian2}</code>.
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th>No</th><th>Caption</th><th>Media</th><th>Status</th></tr>
+          </thead>
+          <tbody id="materialTbody">
+            <tr><td colspan="4"><div class="empty">Belum ada materi. Import Excel/CSV terlebih dahulu.</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="actions">
+        <button class="btn ghost sm" id="btnClearMaterials">🗑️ Kosongkan Materi</button>
+        <span class="count-chip" id="materialCount">0 materi</span>
+      </div>
+    </section>
+
+    <!-- ============ PENGATURAN ANTI-BOT ============ -->
+    <section class="card span-5">
+      <h2><span class="ic">🤖</span> Pengaturan Anti-Bot &amp; Limit</h2>
+      <div class="form-grid">
+        <div class="field">
+          <label>Jeda Min Antar Posting (detik)</label>
+          <input type="number" id="inpMinDelay" min="1" max="86400" placeholder="mis. 180" />
+        </div>
+        <div class="field">
+          <label>Jeda Maks Antar Posting (detik)</label>
+          <input type="number" id="inpMaxDelay" min="1" max="86400" placeholder="mis. 300" />
+        </div>
+        <div class="field">
+          <label>Batas Maksimal Posting / Hari</label>
+          <input type="number" id="inpDailyLimit" min="1" max="10000" placeholder="mis. 20" />
+        </div>
+        <div class="field">
+          <label>Cooldown Interval (setiap N posting)</label>
+          <input type="number" id="inpCooldownEvery" min="1" max="1000" placeholder="mis. 5" />
+        </div>
+        <div class="field full">
+          <label>Cooldown Istirahat (menit)</label>
+          <input type="number" id="inpCooldownMinutes" min="1" max="600" placeholder="mis. 15" />
+        </div>
+      </div>
+      <div class="hint">
+        Posting berhenti sementara selama durasi cooldown setelah tiap
+        <span id="cdEveryText">N</span> posting.
+      </div>
+      <div class="actions">
+        <button class="btn primary sm" id="btnSaveSettings">💾 Simpan Pengaturan</button>
+        <button class="btn ghost sm" id="btnResetSettings">Reset</button>
+      </div>
+    </section>
+
+    <!-- ============ DATA GRUP (DINONAKTIFKAN — mode input langsung) ============ -->
+    <section class="card span-12">
+      <h2><span class="ic">👥</span> Manajemen Data Grup <span style="font-size:11px;color:var(--amber);font-weight:600;">(nonaktif)</span></h2>
+      <div class="hint">Fitur scraping dimatikan. Saat &quot;Mulai Posting&quot; diklik, grup dipilih otomatis dari sidebar FB melalui navigasi natural.</div>
+      <div class="toolbar">
+        <button class="btn" id="btnScrape">🔄 Ambil Data Grup FB</button>
+        <button class="btn danger" id="btnDeleteGroups">🗑️ Hapus Data Grup</button>
+        <input type="search" id="searchGroup" class="grow" placeholder="Cari nama grup / URL..." />
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;">
+          <input type="checkbox" id="chkSelectAll" /> Pilih Semua
+        </label>
+        <span class="count-chip" id="groupCount">0 grup</span>
+      </div>
+      <div class="tbl-wrap">
+        <table>
+          <thead>
+            <tr><th style="width:44px">No</th><th style="width:50px">Pilih</th><th>Nama Grup</th><th>Link / URL</th></tr>
+          </thead>
+          <tbody id="groupTbody">
+            <tr><td colspan="4"><div class="empty">Manajemen grup manual tidak diperlukan — grup dipilih otomatis.</div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- ============ KONTROL & LIVE LOG ============ -->
+    <section class="card span-12">
+      <h2><span class="ic">▶️</span> Kontrol Running &amp; Live Log</h2>
+      <div class="actions">
+        <button class="btn success" id="btnStart">🚀 Mulai Posting</button>
+        <button class="btn danger" id="btnStop" disabled>⏹️ Hentikan Posting</button>
+        <button class="btn ghost" id="btnClearLog">🧹 Bersihkan Log</button>
+        <button class="btn ghost" id="btnViewFb">👁 Lihat Tab FB</button>
+        <label style="display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="chkShowFb" /> Tampilkan tab FB saat posting
+        </label>
+        <span class="count-chip" id="queueInfo">Antrean: -</span>
+      </div>
+      <div class="terminal" id="terminal"></div>
+    </section>
+
+  </main>
+
+  <footer>FB Auto Poster &middot; Manifest V3 &middot; Dedicated Pinned Tab</footer>
+
+  <script src="vendor/xlsx.full.min.js"></script>
+
+  <!-- Lapisan shared (wajib dimuat paling awal) -->
+  <script src="src/shared/config.js"></script>
+  <script src="src/shared/time.js"></script>
+  <script src="src/shared/storage.js"></script>
+
+  <!-- Modul dashboard, sesuai urutan dependensi -->
+  <script src="src/dashboard/state.js"></script>
+  <script src="src/dashboard/ui.js"></script>
+  <script src="src/dashboard/materials.js"></script>
+  <script src="src/dashboard/settings.js"></script>
+  <script src="src/dashboard/groups.js"></script>
+  <script src="src/dashboard/controls.js"></script>
+
+  <!-- Entry point dashboard (paling akhir) -->
+
+  <script src="src/dashboard/main.js"></script>
+</body>
+</html>

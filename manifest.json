@@ -1,0 +1,44 @@
+{
+  "manifest_version": 3,
+  "name": "FB Auto Poster",
+  "version": "1.0.0",
+  "description": "Posting otomatis ke grup Facebook dengan simulasi aktivitas manusia (anti-bot stealth).",
+  "permissions": [
+    "alarms",
+    "storage",
+    "tabs",
+    "scripting",
+    "power"
+  ],
+  "host_permissions": [
+    "https://*.facebook.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/service-worker.js"
+  },
+  "action": {
+    "default_title": "FB Auto Poster - Buka Dashboard"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "https://*.facebook.com/*"
+      ],
+      "js": [
+        "src/shared/config.js",
+        "src/shared/random.js",
+        "src/shared/time.js",
+        "src/shared/spintax.js",
+        "src/content/selectors.js",
+        "src/content/dom.js",
+        "src/content/stealth.js",
+        "src/content/media.js",
+        "src/content/navigation.js",
+        "src/content/scraper.js",
+        "src/content/posting.js",
+        "src/content/content.js"
+      ],
+      "run_at": "document_idle"
+    }
+  ]
+}

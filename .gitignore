@@ -1,0 +1,8 @@
+# Arsip lokal & snapshot sebelum refactor (tidak dipakai runtime)
+backups/
+
+# OS / editor
+Thumbs.db
+Desktop.ini
+.DS_Store
+*.swp

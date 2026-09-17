@@ -1,0 +1,130 @@
+/* =========================================================
+   FB Auto Poster - Dashboard: Bagian 4 - Kontrol Running,
+   Live Log, dan jembatan pesan ke background.
+   ========================================================= */
+
+(function (root) {
+  "use strict";
+
+  const FBAP = (root.FBAP = root.FBAP || {});
+  const dashboard = (FBAP.dashboard = FBAP.dashboard || {});
+  const { MSG, STORAGE } = FBAP.config;
+  const { setStrict } = FBAP.storage;
+  const { State } = dashboard.state;
+  const { $, addLog, setStatus } = dashboard.ui;
+  const { renderMaterials } = dashboard.materials;
+  const { loadGroups } = dashboard.groups;
+
+  /** Kirim pesan ke background; selalu resolve (error jadi {ok:false}). */
+  function sendMsg(msg) {
+    return new Promise((res) => chrome.runtime.sendMessage(msg, (r) => {
+      if (chrome.runtime.lastError) res({ ok: false, error: chrome.runtime.lastError.message });
+      else res(r);
+    }));
+  }
+
+  /* ---------------- SINKRONISASI STATUS AWAL ----------------
+     Background adalah sumber kebenaran tombol Start/Stop. Kunci `status` di
+     storage bisa tertinggal (sesi lama berakhir tanpa stopPosting()), sehingga
+     dashboard harus menanyakan status sebenarnya sebelum mengunci tombol. */
+  async function syncStatus() {
+    const res = await sendMsg({ type: MSG.GET_STATUS });
+    if (!res || !res.ok) return State.running; /* background tak menjawab */
+    if (res.recovered) {
+      addLog("Status \"Berjalan\" warisan sesi lama dibersihkan — siap memulai posting baru.", "warn");
+    }
+    setStatus(!!res.running);
+    return !!res.running;
+  }
+
+  /* ---------------- MULAI POSTING ---------------- */
+  $("btnStart").addEventListener("click", async () => {
+    if (!State.materials.length) { addLog("Tidak ada materi untuk diposting. Import Excel + media dulu.", "err"); return; }
+    if (State.materials.some((m) => m.mediaName && !m.available)) {
+      addLog("Ada materi dengan media tidak tersedia — akan diposting tanpa media.", "warn");
+    }
+
+    addLog(`Menjalankan posting ${State.materials.length} materi. Grup dipilih otomatis dari sidebar FB (navigasi natural).`, "info");
+
+    const res = await sendMsg({
+      type: MSG.START_POSTING,
+      payload: {
+        materials: State.materials.map((m) => ({
+          caption: m.caption || "",
+          mediaName: m.mediaName || "",
+          mediaDataUrl: m.available ? m.mediaDataUrl : null,
+          mediaMime: m.mediaMime || "application/octet-stream"
+        })),
+        settings: { ...State.settings, showFbTab: $("chkShowFb").checked }
+      }
+    });
+    if (res && res.ok) {
+      setStatus(true);
+      addLog("Posting dimulai. Antrean dikelola oleh background.", "ok");
+    } else {
+      addLog(`Gagal memulai: ${(res && res.error) || "unknown"}`, "err");
+    }
+  });
+
+  /* ---------------- HENTIKAN POSTING ---------------- */
+  $("btnStop").addEventListener("click", async () => {
+    await sendMsg({ type: MSG.STOP_POSTING });
+    setStatus(false);
+    addLog("Posting dihentikan oleh user.", "warn");
+  });
+
+  $("btnClearLog").addEventListener("click", () => {
+    $("terminal").innerHTML = "";
+  });
+
+  /* ------- Opsi C: kontrol tampilan tab FB ------- */
+  $("chkShowFb").addEventListener("change", async (e) => {
+    const show = e.target.checked;
+    const res = await sendMsg({ type: MSG.SET_VIEW, showFbTab: show });
+    if (res && res.ok) {
+      await setStrict({ [STORAGE.UI]: { showFbTab: show } }).catch(() => {});
+      addLog(show
+        ? "Tab FB akan tampil di depan (fokus pindah) saat posting, lalu balik ke dashboard."
+        : "Tab FB berjalan di background — fokus tetap di dashboard.", "info");
+    } else {
+      addLog(`Gagal set tampilan: ${(res && res.error) || "unknown"}`, "err");
+    }
+  });
+
+  $("btnViewFb").addEventListener("click", async () => {
+    const res = await sendMsg({ type: MSG.VIEW_FB_TAB });
+    if (!res || !res.ok) addLog(`Gagal membuka tab FB: ${(res && res.error) || "unknown"}`, "err");
+  });
+
+  /* ---------------- EVENT REALTIME DARI BACKGROUND ---------------- */
+  chrome.runtime.onMessage.addListener((msg) => {
+    if (!msg || typeof msg !== "object") return;
+    if (msg.type === MSG.LOG) {
+      addLog(msg.text, msg.cls || "mut");
+    } else if (msg.type === MSG.STATE) {
+      setStatus(!!msg.running);
+    } else if (msg.type === MSG.QUEUE_INFO) {
+      $("queueInfo").textContent = `Antrean Tersisa: ${msg.remaining}`;
+    }
+  });
+
+  /* ---------------- PANTU STORAGE (antar-dashboard) ---------------- */
+  chrome.storage.onChanged.addListener((changes, area) => {
+    if (area !== "local") return;
+    if (changes[STORAGE.POSTING_LOGS]) {
+      const logs = changes[STORAGE.POSTING_LOGS].newValue || [];
+      // hanya tampilkan log terbaru bila idle agar tidak ganda
+      if (!State.running) {
+        $("terminal").innerHTML = "";
+        logs.forEach((l) => addLog(l.text, l.cls));
+      }
+    }
+    if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS]) loadGroups();
+    if (changes[STORAGE.MATERIALS]) {
+      State.materials = changes[STORAGE.MATERIALS].newValue || [];
+      renderMaterials();
+    }
+  });
+
+  dashboard.controls = { sendMsg, syncStatus };
+})(globalThis);
