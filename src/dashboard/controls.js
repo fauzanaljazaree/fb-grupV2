@@ -91,14 +91,20 @@
     } catch (_) {}
   });
 
-  /* ---------------- MULAI POSTING ---------------- */
+  /* ---------------- MULAI POSTING ----------------
+     Alur baru: 1 materi diposting ke SEMUA grup yang dicentang di tabel
+     (urutan tabel atas->bawah), baru lanjut materi berikutnya. */
   $("btnStart").addEventListener("click", async () => {
     if (!State.materials.length) { addLog("Tidak ada materi untuk diposting. Import Excel + media dulu.", "err"); return; }
     if (State.materials.some((m) => m.mediaName && !m.available)) {
       addLog("Ada materi dengan media tidak tersedia — akan diposting tanpa media.", "warn");
     }
+    const targetGroups = (State.groups || []).filter((g) => State.selected.has(g.url));
+    if (!targetGroups.length) { addLog("Tidak ada grup yang dicentang. Centang dulu grup di tabel.", "err"); return; }
+    try { await setStrict({ [STORAGE.GROUP_RESULTS]: {} }); } catch (e) { /* abaikan */ }
+    try { dashboard.groups.resetResults(); } catch (e) { /* abaikan */ }
 
-    addLog(`Menjalankan posting ${State.materials.length} materi. Grup dipilih otomatis dari sidebar FB (navigasi natural).`, "info");
+    addLog(`Menjalankan posting ${State.materials.length} materi x ${targetGroups.length} grup = ${State.materials.length * targetGroups.length} posting.`, "info");
 
     const res = await sendMsg({
       type: MSG.START_POSTING,
@@ -109,6 +115,7 @@
           mediaDataUrl: m.available ? m.mediaDataUrl : null,
           mediaMime: m.mediaMime || "application/octet-stream"
         })),
+        groups: targetGroups.map((g) => ({ name: g.name, url: g.url })),
         settings: { ...State.settings, showFbTab: $("chkShowFb").checked }
       }
     });
@@ -176,6 +183,8 @@
       setStatus(!!msg.running);
     } else if (msg.type === MSG.QUEUE_INFO) {
       $("queueInfo").textContent = `Antrean Tersisa: ${msg.remaining}`;
+    } else if (msg.type === MSG.GROUP_RESULT) {
+      try { dashboard.groups.applyResult(msg); } catch (e) { /* abaikan */ }
     }
   });
 

@@ -17,6 +17,7 @@
   const { $, escapeHtml, addLog } = dashboard.ui;
 
   let searchFilter = "";
+  let groupResults = {}; // {url: {ok, mi, at, error}} hasil posting per grup
 
   /** Cocokkan grup dengan kata kunci pencarian (nama atau URL). */
   function matchesFilter(g) {
@@ -24,11 +25,34 @@
     return g.name.toLowerCase().includes(q) || g.url.toLowerCase().includes(q);
   }
 
-  /** Muat daftar grup + pilihan dari storage. */
+  /** Muat daftar grup + pilihan + hasil posting terakhir dari storage. */
   async function loadGroups() {
-    const data = await get([STORAGE.GROUPS, STORAGE.SELECTED_GROUPS]);
+    const data = await get([STORAGE.GROUPS, STORAGE.SELECTED_GROUPS, STORAGE.GROUP_RESULTS]);
     State.groups = data[STORAGE.GROUPS] || [];
     State.selected = new Set(data[STORAGE.SELECTED_GROUPS] || []);
+    groupResults = data[STORAGE.GROUP_RESULTS] || {};
+    renderGroups();
+  }
+
+  /** Tanda status per grup: ✅ sukses / ❌ gagal (materi terakhir). */
+  function statusBadge(url) {
+    const r = groupResults[url];
+    if (!r) return '<span style="color:var(--muted)">—</span>';
+    if (r.ok) return `<span title="Sukses materi #${(r.mi || 0) + 1}">✅ M${(r.mi || 0) + 1}</span>`;
+    return `<span title="${escapeHtml(r.error || "gagal")}">❌ M${(r.mi || 0) + 1}</span>`;
+  }
+
+  /** Update 1 baris hasil dari background (realtime + persist). */
+  function applyResult(msg) {
+    if (!msg || !msg.url) return;
+    groupResults[msg.url] = { ok: !!msg.ok, mi: msg.mi || 0, at: Date.now(), error: msg.error || "" };
+    renderGroups();
+    setStrict({ [STORAGE.GROUP_RESULTS]: groupResults }).catch(() => {});
+  }
+
+  /** Reset semua tanda saat sesi posting baru dimulai. */
+  function resetResults() {
+    groupResults = {};
     renderGroups();
   }
 
@@ -37,7 +61,7 @@
     const filtered = State.groups.filter(matchesFilter);
     $("groupCount").textContent = `${filtered.length} grup ditampilkan`;
     if (!filtered.length) {
-      tb.innerHTML = `<tr><td colspan="4"><div class="empty">${State.groups.length ? "Tidak ada yang cocok dengan pencarian." : 'Belum ada data grup. Klik "Ambil Data Grup FB".'}</div></td></tr>`;
+      tb.innerHTML = `<tr><td colspan="5"><div class="empty">${State.groups.length ? "Tidak ada yang cocok dengan pencarian." : 'Belum ada data grup. Klik "Ambil Data Grup FB".'}</div></td></tr>`;
       $("chkSelectAll").checked = false;
       return;
     }
@@ -48,6 +72,7 @@
         <td><input type="checkbox" data-url="${escapeHtml(g.url)}" ${State.selected.has(g.url) ? "checked" : ""} /></td>
         <td>${escapeHtml(g.name)}</td>
         <td><a href="${escapeHtml(g.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(g.url)}</a></td>
+        <td style="white-space:nowrap">${statusBadge(g.url)}</td>
       </tr>`).join("");
     $("chkSelectAll").checked = State.groups.length > 0 && selectedCount === State.groups.length;
   }
@@ -119,5 +144,5 @@
     addLog(`${doomed.size} grup dihapus dari storage.`, "warn");
   });
 
-  dashboard.groups = { loadGroups, renderGroups, matchesFilter };
+  dashboard.groups = { loadGroups, renderGroups, matchesFilter, applyResult, resetResults };
 })(globalThis);

@@ -41,6 +41,8 @@
     POSTING_LOGS: "postingLogs",
     GROUPS: "groups",
     SELECTED_GROUPS: "selectedGroups",
+    GROUP_RESULTS: "groupResults",
+    GROUPS_SNAPSHOT: "groupsSnapshot",
     SCAN_STATUS: "scanStatus",
     LAST_SCAN: "lastScan",
     ACCOUNT_NAME: "accountName"
@@ -54,6 +56,7 @@
     LOG: "LOG",
     STATE: "STATE",
     QUEUE_INFO: "QUEUE_INFO",
+    GROUP_RESULT: "GROUP_RESULT",
     /* dashboard -> background */
     START_POSTING: "START_POSTING",
     STOP_POSTING: "STOP_POSTING",

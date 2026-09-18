@@ -18,11 +18,13 @@
   const run = {
     running: false,
     busy: false,
-    queue: [],
+    queue: [],        // [{mi, gi}] pasangan materi x grup (materi-luar, grup-dalam)
     cursor: 0,
     materials: [],
+    groups: [],       // [{name, url}] grup terpilih (urutan tabel)
+    results: {},      // {groupUrl: {ok, materialIdx, at, error}}
     settings: { ...DEFAULTS.settings },
-    groupUrl: null,
+    groupUrl: null,   // grup terakhir dipakai (info saja, bukan cache navigasi)
     groupName: null,
     postTabId: null,
     dashboardTabId: null,

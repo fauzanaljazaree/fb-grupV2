@@ -39,10 +39,11 @@
           const info = await navHomeToGroup();
           sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
         } else if (msg.type === MSG.NAV_HOME_TO_COMPOSER) {
-          /* Rantai penuh: homepage -> sidebar "Grup" -> grup teratas -> composer
-             terbuka. Timeout trigger lebih longgar karena halaman grup baru
-             saja dimuat (SPA) setelah navHomeToGroup(). */
-          const info = await navHomeToGroup();
+          /* Rantai penuh: homepage -> sidebar "Grup" -> grup TARGET (bila
+             msg.targetGroupUrl diisi) atau grup teratas (perilaku lama) ->
+             composer terbuka. Timeout trigger lebih longgar karena halaman
+             grup baru saja dimuat (SPA) setelah navHomeToGroup(). */
+          const info = await navHomeToGroup(msg.targetGroupUrl || null);
           await openComposer(25000);
           sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
         } else if (msg.type === MSG.EXECUTE_POST) {

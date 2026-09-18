@@ -2,8 +2,11 @@
    FB Auto Poster - Content: Navigasi Natural Home -> Grup
    Step 1: pastikan berada di facebook.com
    Step 2: klik menu "Grup" di sidebar kiri
-   Step 3: scroll sidebar, lalu klik grup pertama setelah
-           heading "Grup yang Anda bergabung di dalamnya"
+   Step 3: scroll sidebar, lalu klik grup TARGET:
+           - bila targetGroupUrl diberikan -> cari anchor yang URL-nya
+             cocok (kanonis) dengan target, scroll sidebar sampai ketemu;
+           - bila tidak -> grup pertama setelah heading
+             "Grup yang Anda bergabung di dalamnya" (perilaku lama).
 
    CATATAN STRATEGI PENCARIAN GRUP
    Di layout Facebook saat ini, daftar grup berada di CABANG
@@ -106,8 +109,10 @@
     return null;
   }
 
-  /** Jalankan navigasi natural sampai berada di halaman salah satu grup. */
-  async function navHomeToGroup() {
+  /** Jalankan navigasi natural sampai berada di halaman grup TARGET.
+      targetGroupUrl opsional: bila diberikan, sidebar di-scroll bertahap
+      dan anchor yang URL kanonisnya cocok akan diklik. */
+  async function navHomeToGroup(targetGroupUrl) {
     // Step 2: klik tombol "Grup"
     const grupBtn = await waitForSelector(GRUP_LINK, 15000);
     if (!grupBtn) throw new Error("Tombol 'Grup' tidak ditemukan di halaman.");
@@ -126,9 +131,16 @@
     // Scroll sidebar sebentar (simulasi baca)
     await humanScrollSidebar(sidebar);
 
-    // Cari heading "Grup yang Anda bergabung di dalamnya" lalu klik grup pertama setelahnya
-    const groupEl = await findTopJoinedGroup(sidebar);
-    if (!groupEl) throw new Error("Grup join teratas tidak ditemukan.");
+    const want = normalizeUrl(targetGroupUrl || "");
+    let groupEl = null;
+    if (want) {
+      groupEl = await findGroupByUrl(sidebar, want);
+      if (!groupEl) throw new Error(`Grup target tidak ketemu di sidebar: ${want}`);
+    } else {
+      // Cari heading "Grup yang Anda bergabung di dalamnya" lalu klik grup pertama setelahnya
+      groupEl = await findTopJoinedGroup(sidebar);
+      if (!groupEl) throw new Error("Grup join teratas tidak ditemukan.");
+    }
     await humanScrollToEl(groupEl);
     const groupUrl = normalizeUrl(groupEl.getAttribute("href"));
     const scraper = (content && content.scraper) || {};
@@ -140,5 +152,29 @@
     return { groupUrl: groupUrl || location.href, groupName };
   }
 
-  content.navigation = { navHomeToGroup, findTopJoinedGroup };
+  /** Cari anchor grup yang URL kanonisnya sama dengan target.
+      Sidebar FB memakai lazy-render: scroll bertahap sampai 25x,
+      tiap pass cek semua anchor; cocok = normalizeUrl sama persis. */
+  async function findGroupByUrl(sidebar, targetUrl) {
+    const want = normalizeUrl(targetUrl);
+    if (!want) return null;
+    const scroller = sidebar.querySelector("[data-visualcompletion]") || sidebar;
+    for (let pass = 0; pass < 25; pass++) {
+      const anchors = sidebar.querySelectorAll('a[role="link"][href*="/groups/"]');
+      for (const a of anchors) {
+        if (!isGroupLink(a)) continue;
+        if (normalizeUrl(a.getAttribute("href")) === want) return a;
+      }
+      /* Belum ketemu: scroll ke bawah sedikit lalu jeda render. */
+      try {
+        scroller.scrollTop = scroller.scrollTop + 500;
+        scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+      } catch (e) { /* abaikan */ }
+      await humanScrollSidebar(sidebar);
+      await sleep(600);
+    }
+    return null;
+  }
+
+  content.navigation = { navHomeToGroup, findTopJoinedGroup, findGroupByUrl };
 })(globalThis);

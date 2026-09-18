@@ -4,8 +4,12 @@
    per langkah) supaya service worker tetap bisa tidur di
    antara dua posting.
 
-   Alur: startPosting -> scheduleNext -> onAlarm ->
-         processNextPost -> scheduleNext (berulang).
+   Alur BARU (materi-luar x grup-dalam): startPosting -> scheduleNext ->
+         onAlarm -> processNextPost -> scheduleNext (berulang).
+   Tiap item antrean = {mi, gi} (1 materi ke 1 grup target dari tabel
+   dashboard yang dicentang). Navigasi natural dilakukan SETIAP langkah
+   (cari grup target di sidebar -> klik), jeda acak setiap pindah grup.
+   Gagal di 1 grup -> lanjut grup berikutnya + tandai ✅/❌ di tabel.
    Ketika antrean habis / limit harian tercapai -> stopPosting.
    ========================================================= */
 
@@ -30,18 +34,27 @@
   async function startPosting(payload) {
     if (run.running) return { ok: false, error: "Posting sudah berjalan" };
     const materialList = (payload && payload.materials) || [];
+    const groupList = (payload && payload.groups) || [];
     const settings = (payload && payload.settings) || {};
     if (!materialList.length) return { ok: false, error: "Tidak ada materi" };
+    if (!groupList.length) return { ok: false, error: "Tidak ada grup yang dicentang. Centang dulu grup di tabel." };
 
     run.materials = materialList;
+    run.groups = groupList.map((g) => ({ name: g.name || g.url, url: g.url }));
     run.settings = { ...DEFAULTS.settings, ...settings };
     run.showFbTab = !!(settings && settings.showFbTab);
-    run.queue = materialList.map((_, i) => i);
+    /* 1 materi ke semua grup sampai selesai, baru materi berikutnya:
+       loop luar = materi, loop dalam = grup. */
+    run.queue = [];
+    for (let mi = 0; mi < materialList.length; mi++) {
+      for (let gi = 0; gi < run.groups.length; gi++) run.queue.push({ mi, gi });
+    }
     run.cursor = 0;
     run.postsSinceCooldown = 0;
     run.cooldownUntil = 0;
     run.groupUrl = null;
     run.groupName = null;
+    run.results = {};
     run.postTabId = null;
 
     /* PENTING: persist antrean ke storage agar processNextPost (alarm)
@@ -50,15 +63,17 @@
       [STORAGE.QUEUE]: run.queue,
       [STORAGE.CURSOR]: 0,
       [STORAGE.MATERIALS]: run.materials,
-      [STORAGE.SETTINGS]: run.settings
+      [STORAGE.SETTINGS]: run.settings,
+      [STORAGE.GROUPS_SNAPSHOT]: run.groups,
+      [STORAGE.GROUP_RESULTS]: {}
     });
 
     keepAwakeOn();
     await setRunning(true);
-    await log(`Antrean dibangun: ${run.queue.length} materi. Mode: navigasi natural + input langsung. Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`, "info");
+    await log(`Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} posting. Mode: 1 materi ke semua grup (klik natural sidebar tiap grup). Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`, "info");
     await broadcastQueueInfo();
     /* Posting pertama LANGSUNG (tanpa alarm/jeda) — jeda acak hanya untuk
-       antar materi berikutnya (diatur scheduleNext di processNextPost). */
+       antar posting berikutnya (diatur scheduleNext di processNextPost). */
     processNextPost().catch(() => {});
     return { ok: true };
   }
@@ -145,7 +160,9 @@
         STORAGE.CURSOR,
         STORAGE.SETTINGS,
         STORAGE.MATERIALS,
-        STORAGE.STATS
+        STORAGE.STATS,
+        STORAGE.GROUPS_SNAPSHOT,
+        STORAGE.GROUP_RESULTS
       ]);
       /* FALLBACK: bila storage kosong (mis. alarm fire sebelum persist),
          pakai state in-memory jangan overwrite dengan nilai kosong. */
@@ -156,9 +173,11 @@
         ...((st[STORAGE.SETTINGS] && Object.keys(st[STORAGE.SETTINGS]).length) ? st[STORAGE.SETTINGS] : run.settings)
       };
       run.materials = (st[STORAGE.MATERIALS] && st[STORAGE.MATERIALS].length) ? st[STORAGE.MATERIALS] : (run.materials || []);
+      run.groups = (st[STORAGE.GROUPS_SNAPSHOT] && st[STORAGE.GROUPS_SNAPSHOT].length) ? st[STORAGE.GROUPS_SNAPSHOT] : (run.groups || []);
+      run.results = st[STORAGE.GROUP_RESULTS] || run.results || {};
 
       if (run.cursor >= run.queue.length) {
-        await stopPosting("Antrean selesai. Semua materi telah diposting.");
+        await stopPosting("Antrean selesai. Semua materi telah diposting ke semua grup.");
         return;
       }
 
@@ -170,28 +189,30 @@
         return;
       }
 
-      /* STEP 1-3: navigasi natural + buka composer (sekali saja).
-         Memakai NAV_HOME_TO_COMPOSER — rantai yang sama dengan tombol
-         "Uji Buka Composer" (terbukti berhasil di DOM nyata):
-         home -> sidebar "Grup" -> grup teratas -> composer terbuka. */
-      if (!run.groupUrl) {
-        await log("Navigasi natural: home -> Grup -> sidebar -> grup teratas -> composer...", "info");
-        const navTab = await ensurePostTab(FB_HOME);
-        await waitTabLoaded(navTab.id, 45000);
-        await ensureContentScript(navTab.id);
-        const nav = await sendToContent(navTab.id, { type: MSG.NAV_HOME_TO_COMPOSER }, 120000);
-        if (!nav || !nav.ok || !nav.groupUrl) {
-          throw new Error(`Navigasi gagal: ${(nav && nav.error) || "grup tidak ditemukan"}`);
-        }
-        run.groupUrl = nav.groupUrl;
-        run.groupName = nav.groupName || "(tanpa nama)";
-        await log(`Grup terpilih otomatis: ${run.groupName} (${run.groupUrl})`, "ok");
+      /* STEP 1-3: navigasi natural SETIAP langkah ke grup TARGET.
+         1 materi ke semua grup (klik natural sidebar tiap grup),
+         memakai NAV_HOME_TO_COMPOSER + targetGroupUrl. */
+      const item = run.queue[run.cursor] || {};
+      const mi = (typeof item === "object" && item.mi != null) ? item.mi : run.cursor;
+      const gi = (typeof item === "object" && item.gi != null) ? item.gi : 0;
+      const material = run.materials[mi] || run.materials[0];
+      const group = run.groups[gi] || null;
+      if (!material) throw new Error("Materi tidak ditemukan di antrean.");
+      if (!group || !group.url) throw new Error("Grup target tidak ditemukan di antrean.");
+      await log(`Navigasi natural ke grup: ${group.name || group.url}...`, "info");
+      const navTab = await ensurePostTab(FB_HOME);
+      await waitTabLoaded(navTab.id, 45000);
+      await ensureContentScript(navTab.id);
+      const nav = await sendToContent(navTab.id, { type: MSG.NAV_HOME_TO_COMPOSER, targetGroupUrl: group.url }, 120000);
+      if (!nav || !nav.ok || !nav.groupUrl) {
+        throw new Error(`Navigasi ke "${group.name}" gagal: ${(nav && nav.error) || "grup tidak ditemukan"}`);
       }
+      run.groupUrl = nav.groupUrl;
+      run.groupName = nav.groupName || group.name || "(tanpa nama)";
+      await log(`Grup target: ${run.groupName} (${run.groupUrl})`, "ok");
 
-      /* STEP 4: posting materi ke grup terpilih */
-      const idx = run.queue[run.cursor];
-      const material = run.materials[idx] || run.materials[0];
-      await log(`Memproses materi #${idx + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length})`, "info");
+      /* STEP 4: posting materi ke grup target */
+      await log(`Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length})`, "info");
 
       const tab = await ensurePostTab(run.groupUrl);
       await waitTabLoaded(tab.id, 45000);
@@ -207,10 +228,16 @@
       if (res && res.ok) {
         const statsNow = (await storageGet([STORAGE.STATS]))[STORAGE.STATS] || {};
         statsNow[today] = (statsNow[today] || 0) + 1;
-        await storageSet({ [STORAGE.STATS]: statsNow });
-        await log(`Sukses materi #${idx + 1} di ${run.groupName}`, "ok");
+        run.results[group.url] = { ok: true, mi, at: Date.now() };
+        await storageSet({ [STORAGE.STATS]: statsNow, [STORAGE.GROUP_RESULTS]: run.results });
+        await log(`Sukses materi #${mi + 1} di ${run.groupName}`, "ok");
+        chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: true, mi }).catch(() => {});
       } else {
-        await log(`GAGAL posting di ${run.groupName}: ${(res && res.error) || "tidak ada respons"}`, "err");
+        const msg = (res && res.error) || "tidak ada respons";
+        run.results[group.url] = { ok: false, mi, at: Date.now(), error: msg };
+        await storageSet({ [STORAGE.GROUP_RESULTS]: run.results });
+        await log(`GAGAL materi #${mi + 1} di ${run.groupName}: ${msg} — lanjut grup berikutnya.`, "err");
+        chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: false, mi, error: msg }).catch(() => {});
       }
 
       /* Opsi C: setelah posting selesai, fokus balik ke dashboard */
@@ -236,7 +263,25 @@
       }
       if (run.running) scheduleNext(delayMs);
     } catch (err) {
-      await log(`Error proses posting: ${err.message}`, "err");
+      /* Gagal navigasi/posting di 1 grup -> tandai ❌, majukan cursor,
+         lanjut grup berikutnya (jangan berhenti total). */
+      try {
+        const item = run.queue[run.cursor] || {};
+        const mi = (typeof item === "object" && item.mi != null) ? item.mi : run.cursor;
+        const gi = (typeof item === "object" && item.gi != null) ? item.gi : 0;
+        const group = (run.groups && run.groups[gi]) || null;
+        if (group && group.url) {
+          run.results[group.url] = { ok: false, mi, at: Date.now(), error: (err && err.message) || String(err) };
+          await storageSet({ [STORAGE.GROUP_RESULTS]: run.results });
+          chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: false, mi, error: (err && err.message) || "" }).catch(() => {});
+          await log(`GAGAL materi #${mi + 1} di ${group.name}: ${err.message} — lanjut grup berikutnya.`, "err");
+        } else {
+          await log(`Error proses posting: ${err.message}`, "err");
+        }
+        run.cursor++;
+        await storageSet({ [STORAGE.CURSOR]: run.cursor });
+        await broadcastQueueInfo();
+      } catch (e) { /* abaikan */ }
       if (run.running) scheduleNext(randInt(run.settings.minDelay, run.settings.maxDelay) * 1000);
     } finally {
       run.busy = false;
