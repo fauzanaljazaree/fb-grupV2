@@ -40,8 +40,12 @@
   /* ---------------- NAMA AKUN FB MANUAL (textbox + centang tersimpan) ----------------
      Ketik nama -> debounce 600ms -> tulis chrome.storage.local.
      Centang hijau HANYA muncul setelah storage benar-benar berubah
-     (diverifikasi lewat storage.onChanged, bukan asumsi UI). */
+     (diverifikasi lewat storage.onChanged, bukan asumsi UI).
+     Permanen: buka-tutup dashboard tetap ada (restore di main.js).
+     Hanya overwrite saat user mengetik ulang (input kosong diabaikan,
+     tidak menghapus nama tersimpan). */
   let accountSaveTimer = null;
+  let lastSavedAccount = "";
 
   $("accountNameInput").addEventListener("input", () => {
     clearTimeout(accountSaveTimer);
@@ -50,10 +54,20 @@
       const name = $("accountNameInput").value.trim();
       try {
         if (!name) {
-          await setStrict({ [STORAGE.ACCOUNT_NAME]: { name: "", checkedAt: Date.now() } });
-        } else {
-          await setStrict({ [STORAGE.ACCOUNT_NAME]: { name, checkedAt: Date.now() } });
+          /* Input kosong = abaikan, kembalikan ke nilai tersimpan agar
+             nama permanen tidak terhapus accidentaly. */
+          if (lastSavedAccount) {
+            $("accountNameInput").value = lastSavedAccount;
+            showSaved();
+          }
+          return;
         }
+        if (name === lastSavedAccount) {
+          showSaved();
+          return;
+        }
+        await setStrict({ [STORAGE.ACCOUNT_NAME]: { name, checkedAt: Date.now() } });
+        lastSavedAccount = name;
         /* Centang tampil lewat storage.onChanged di bawah. */
         dashboard.materials.applyAccountFilter();
       } catch (e) {
@@ -61,6 +75,20 @@
         addLog(`Gagal menyimpan nama akun: ${e.message}`, "err");
       }
     }, 600);
+  });
+
+  /* Cache nilai tersimpan agar guard kosong/identik bekerja + restore sinkron. */
+  FBAP.storage.get([STORAGE.ACCOUNT_NAME]).then((data) => {
+    try {
+      const raw = data && data[STORAGE.ACCOUNT_NAME];
+      const saved = typeof raw === "string" ? raw : (raw && raw.name) || "";
+      if (String(saved).trim()) {
+        lastSavedAccount = String(saved).trim();
+        if (!$("accountNameInput").value) {
+          $("accountNameInput").value = lastSavedAccount;
+        }
+      }
+    } catch (_) {}
   });
 
   /* ---------------- MULAI POSTING ---------------- */
@@ -164,6 +192,9 @@
     }
     if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS]) loadGroups();
     if (changes[STORAGE.ACCOUNT_NAME]) {
+      const nv = changes[STORAGE.ACCOUNT_NAME].newValue;
+      const saved = typeof nv === "string" ? nv : (nv && nv.name) || "";
+      if (String(saved).trim()) lastSavedAccount = String(saved).trim();
       showSaved();
       dashboard.materials.applyAccountFilter();
     }

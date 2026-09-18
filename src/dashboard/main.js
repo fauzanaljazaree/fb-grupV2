@@ -38,7 +38,8 @@
       STORAGE.SELECTED_GROUPS,
       STORAGE.MATERIALS,
       STORAGE.POSTING_LOGS,
-      STORAGE.UI
+      STORAGE.UI,
+      STORAGE.ACCOUNT_NAME
     ]);
     if (data[STORAGE.SETTINGS]) {
       State.settings = { ...State.settings, ...data[STORAGE.SETTINGS] };
@@ -46,9 +47,15 @@
     if (data[STORAGE.UI] && typeof data[STORAGE.UI].showFbTab === "boolean") {
       $("chkShowFb").checked = data[STORAGE.UI].showFbTab;
     }
-    if (data[STORAGE.ACCOUNT_NAME] && data[STORAGE.ACCOUNT_NAME].name) {
-      setAccountName(data[STORAGE.ACCOUNT_NAME].name);
-      showSaved();
+    /* Restore nama akun permanen (buka-tutup dashboard tetap ada).
+       Dukung objek {name} baru + string legacy. */
+    {
+      const raw = data[STORAGE.ACCOUNT_NAME];
+      const saved = typeof raw === "string" ? raw : (raw && raw.name) || "";
+      if (String(saved).trim()) {
+        setAccountName(String(saved).trim());
+        showSaved();
+      }
     }
     // Selalu isi form dengan default agar user bisa langsung lihat & ubah.
     fillSettingsForm(State.settings);
