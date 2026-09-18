@@ -12,7 +12,8 @@
   const { DEFAULTS } = FBAP.config;
 
   const State = {
-    materials: [],       // [{caption, mediaName, available, mediaDataUrl, mediaMime}]
+    materials: [],       // [{account, caption, mediaName, available, mediaDataUrl, mediaMime}] hasil filter akun
+    allMaterials: [],    // semua baris hasil import (sebelum difilter akun, in-memory)
     groups: [],          // [{name, url}]
     selected: new Set(), // url grup terpilih
     settings: { ...DEFAULTS.settings },

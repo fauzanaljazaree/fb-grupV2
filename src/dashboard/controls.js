@@ -55,6 +55,7 @@
           await setStrict({ [STORAGE.ACCOUNT_NAME]: { name, checkedAt: Date.now() } });
         }
         /* Centang tampil lewat storage.onChanged di bawah. */
+        dashboard.materials.applyAccountFilter();
       } catch (e) {
         showSaveError();
         addLog(`Gagal menyimpan nama akun: ${e.message}`, "err");
@@ -162,7 +163,10 @@
       }
     }
     if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS]) loadGroups();
-    if (changes[STORAGE.ACCOUNT_NAME]) showSaved();
+    if (changes[STORAGE.ACCOUNT_NAME]) {
+      showSaved();
+      dashboard.materials.applyAccountFilter();
+    }
     /* Bus status scan (pola fb-grupV3): background menulis scanStatus,
        dashboard membaca lewat onChanged agar UI update tanpa reload. */
     const scanChange = changes[STORAGE.SCAN_STATUS];

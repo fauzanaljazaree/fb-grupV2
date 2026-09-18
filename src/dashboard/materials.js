@@ -17,6 +17,39 @@
   /* nama file (lowercase) -> {dataUrl, mime} dari folder media terpilih */
   let folderMap = {};
 
+  /* ---------------- HELPER NAMA AKUN ---------------- */
+
+  /** Normalisasi nama akun: lowercase + trim + spasi dirapikan. */
+  function normAccount(s) {
+    return String(s || "").toLowerCase().trim().replace(/\s+/g, " ").replace(/^\uFEFF/, "");
+  }
+
+  /** Nama akun aktif = textbox di header dashboard (akun browser ini). */
+  function getCurrentAccount() {
+    const el = $("accountNameInput");
+    return el ? String(el.value || "").trim() : "";
+  }
+
+  /** Cocokkan satu baris Excel (boleh multi-akun "Budi, Andi") dgn akun aktif. */
+  function rowMatchesAccount(rowAccount, currentAccount) {
+    const cur = normAccount(currentAccount);
+    if (!cur) return false;
+    return String(rowAccount || "")
+      .split(/[,;|]/)
+      .some((part) => normAccount(part) === cur);
+  }
+
+  /** Resolve ketersediaan media utk daftar materi (folder media dipakai ulang). */
+  function resolveMedia(list) {
+    list.forEach((m) => {
+      const fm = folderMap[String(m.mediaName || "").toLowerCase()];
+      m.available = !!m.mediaName && !!fm;
+      m.mediaDataUrl = fm ? fm.dataUrl : null;
+      m.mediaMime = fm ? fm.mime : null;
+    });
+    return list;
+  }
+
   /** Simpan daftar materi ke storage (kegagalan cukup diberi peringatan). */
   async function saveMaterials() {
     try {
@@ -24,6 +57,33 @@
     } catch (err) {
       addLog(`Peringatan: materi mungkin tidak tersimpan (${err.message}).`, "warn");
     }
+  }
+
+  /* ---------------- FILTER PER AKUN BROWSER ----------------
+     State.allMaterials = semua baris import (in-memory).
+     State.materials    = hanya baris yang Nama_Akun-nya cocok dgn
+                          textbox akun di header (akun browser ini). */
+  function applyAccountFilter(logIt = true) {
+    const current = getCurrentAccount();
+    if (!current) {
+      State.materials = [];
+      if (logIt && State.allMaterials.length) {
+        addLog("Nama akun FB belum diisi di header — materi tidak dimuat. Isi dulu lalu import ulang.", "warn");
+      }
+    } else {
+      State.materials = resolveMedia(
+        State.allMaterials.filter((m) => rowMatchesAccount(m.account, current))
+      );
+      if (logIt && State.allMaterials.length) {
+        const skipped = State.allMaterials.length - State.materials.length;
+        addLog(
+          `Filter akun '${current}': ${State.materials.length} cocok, ${skipped} dilewati.`,
+          State.materials.length ? "ok" : "warn"
+        );
+      }
+    }
+    saveMaterials();
+    renderMaterials();
   }
 
   /* ---------------- IMPORT EXCEL / CSV ---------------- */
@@ -37,26 +97,47 @@
       const ws = wb.Sheets[wb.SheetNames[0]];
       const rows = XLSX.utils.sheet_to_json(ws, { defval: "" });
       const header = rows.length ? Object.keys(rows[0]) : [];
-      const norm = (h) => String(h).toLowerCase().trim().replace(/^\uFEFF/, "");
+      const norm = (h) => String(h).toLowerCase().trim().replace(/^\uFEFF/, "").replace(/[\s_-]+/g, "");
       const capKey = header.find((h) => norm(h) === "caption");
-      const mediaKey = header.find((h) => norm(h) === "media_name" || norm(h) === "media");
+      const mediaKey = header.find((h) => norm(h) === "medianame" || norm(h) === "media");
+      const accKey = header.find(
+        (h) => ["namaakun", "akun", "account", "accountname", "namaakunfb"].includes(norm(h))
+      );
       if (!capKey) throw new Error("Kolom 'Caption' tidak ditemukan di sheet.");
 
-      State.materials = rows.map((r) => {
-        const mediaName = String(mediaKey ? r[mediaKey] : "").trim();
-        const fm = folderMap[mediaName.toLowerCase()];
-        return {
-          caption: String(r[capKey] ?? ""),
-          mediaName,
-          available: !!mediaName && !!fm,
-          mediaDataUrl: fm ? fm.dataUrl : null,
-          mediaMime: fm ? fm.mime : null
-        };
-      }).filter((m) => m.caption);
+      const hasAccountCol = !!accKey;
+      const current = getCurrentAccount();
+      const all = rows.map((r) => ({
+        account: String(accKey ? (r[accKey] ?? "") : "").trim(),
+        caption: String(r[capKey] ?? ""),
+        mediaName: String(mediaKey ? (r[mediaKey] ?? "") : "").trim()
+      })).filter((m) => m.caption);
+
+      State.allMaterials = all;
       e.target.value = "";
-      await saveMaterials();
-      addLog(`Berhasil import ${State.materials.length} materi.`, "ok");
-      renderMaterials();
+      if (hasAccountCol && !current) {
+        /* Akun browser belum diisi: tidak memuat apa pun (aturan filter akun). */
+        State.materials = [];
+        addLog(`Import selesai (${all.length} baris), TAPI nama akun FB belum diisi di header — tidak ada materi dimuat. Isi nama akun lalu ganti/re-import.`, "warn");
+        saveMaterials();
+        renderMaterials();
+      } else {
+        if (hasAccountCol) {
+          State.materials = resolveMedia(all.filter((m) => rowMatchesAccount(m.account, current)));
+        } else {
+          /* File lama tanpa kolom akun: semua baris dimuat (backward compatible). */
+          State.materials = resolveMedia(all);
+        }
+        const skipped = all.length - State.materials.length;
+        addLog(
+          hasAccountCol
+            ? `Import ${all.length} baris. Akun '${current}': ${State.materials.length} cocok, ${skipped} dilewati.`
+            : `Berhasil import ${State.materials.length} materi (file tanpa kolom Nama_Akun — semua dimuat).`,
+          State.materials.length ? "ok" : "warn"
+        );
+        saveMaterials();
+        renderMaterials();
+      }
     } catch (err) {
       addLog(`Gagal import Excel: ${err.message}`, "err");
     }
@@ -86,12 +167,7 @@
         addLog(`Gagal baca ${file.name}: ${err.message}`, "warn");
       }
     }
-    State.materials.forEach((m) => {
-      const fm = folderMap[m.mediaName.toLowerCase()];
-      m.available = !!m.mediaName && !!fm;
-      m.mediaDataUrl = fm ? fm.dataUrl : null;
-      m.mediaMime = fm ? fm.mime : null;
-    });
+    resolveMedia(State.materials);
     await saveMaterials();
     addLog(`Folder dimuat: ${loaded} file media tersedia.`, "ok");
     renderMaterials();
@@ -102,7 +178,7 @@
     const tb = $("materialTbody");
     $("materialCount").textContent = `${State.materials.length} materi`;
     if (!State.materials.length) {
-      tb.innerHTML = `<tr><td colspan="4"><div class="empty">Belum ada materi. Import Excel/CSV terlebih dahulu.</div></td></tr>`;
+      tb.innerHTML = `<tr><td colspan="5"><div class="empty">Belum ada materi. Import Excel/CSV terlebih dahulu.</div></td></tr>`;
       return;
     }
     tb.innerHTML = State.materials.map((m, i) => {
@@ -113,6 +189,7 @@
         : '<span class="badge warn">Tanpa Media</span>';
       return `<tr>
         <td>${i + 1}</td>
+        <td title="${escapeHtml(m.account || "-")}">${escapeHtml(m.account || "-")}</td>
         <td class="cap-cell" title="${escapeHtml(m.caption)}">${escapeHtml(m.caption)}</td>
         <td>${escapeHtml(m.mediaName || "-")}</td>
         <td>${badge}</td>
@@ -122,6 +199,7 @@
 
   $("btnClearMaterials").addEventListener("click", async () => {
     State.materials = [];
+    State.allMaterials = [];
     folderMap = {};
     $("excelInput").value = "";
     $("folderInput").value = "";
@@ -130,5 +208,5 @@
     addLog("Materi & media dikosongkan.", "warn");
   });
 
-  dashboard.materials = { saveMaterials, renderMaterials };
+  dashboard.materials = { saveMaterials, renderMaterials, applyAccountFilter, getCurrentAccount };
 })(globalThis);

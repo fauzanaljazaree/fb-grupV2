@@ -17,7 +17,6 @@
   const { get } = FBAP.storage;
   const { State } = dashboard.state;
   const { $, addLog, setAccountName, showSaved } = dashboard.ui;
-  const { renderMaterials } = dashboard.materials;
   const { fillSettingsForm } = dashboard.settings;
   const { renderGroups } = dashboard.groups;
   const { syncStatus } = dashboard.controls;
@@ -55,9 +54,11 @@
     fillSettingsForm(State.settings);
     State.groups = data[STORAGE.GROUPS] || [];
     State.selected = new Set(data[STORAGE.SELECTED_GROUPS] || []);
-    State.materials = data[STORAGE.MATERIALS] || [];
+    State.allMaterials = data[STORAGE.MATERIALS] || [];
     renderGroups();
-    renderMaterials();
+    /* Materi tersimpan = hasil filter sesi terakhir. Re-filter dengan nama
+       akun yang sekarang agar tabel langsung sesuai akun browser ini. */
+    dashboard.materials.applyAccountFilter(false);
     /* Status tombol Start/Stop diambil dari background (memori + alarm), bukan
        dari kunci `status` di storage yang bisa tertinggal dari sesi lama. */
     const running = await syncStatus();
