@@ -10,7 +10,7 @@
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
   const { sleep } = FBAP.time;
-  const { POST_BUTTON_SELECTORS, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE } = content.selectors;
+  const { POST_BUTTON_SELECTORS, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE, SYSTEM_GROUP_URL } = content.selectors;
 
   /* ---------- PENUNGGU (WAIT) ---------- */
 
@@ -183,11 +183,36 @@
 
   /* ---------- URL ---------- */
 
-  /** Samakan bentuk URL grup: absolut, tanpa query, tanpa trailing slash. */
+  /** Samakan ke format kanonis grup:
+      "https://www.facebook.com/groups/{id}" (id angka ATAU slug teks).
+      Potong query/hash/ekor path (/members, /about, ...). Kembalikan ""
+      bila bukan URL grup valid (selain format itu jangan disimpan). */
   function normalizeUrl(href) {
-    let h = (href || "").split("?")[0];
-    if (h.startsWith("/")) h = "https://www.facebook.com" + h;
-    return h.replace(/\/$/, "");
+    const raw = (href || "").trim();
+    if (!raw) return "";
+    let path = "";
+    try {
+      if (/^https?:\/\//i.test(raw)) {
+        const u = new URL(raw);
+        if (!/(^|\.)facebook\.com$/i.test(u.hostname)) return "";
+        path = u.pathname || "";
+      } else if (raw.startsWith("/")) {
+        path = raw.split("?")[0].split("#")[0];
+      } else {
+        return "";
+      }
+    } catch (e) { return ""; }
+    const m = path.split("?")[0].split("#")[0].match(/^\/groups\/([A-Za-z0-9._-]+)\/?$/);
+    if (!m) {
+      /* Ada ekor path (/groups/{id}/members): ambil segmen id-nya saja. */
+      const m2 = path.match(/^\/groups\/([A-Za-z0-9._-]+)\//);
+      if (!m2) return "";
+      const idOnly = m2[1];
+      if (SYSTEM_GROUP_URL.test("/groups/" + idOnly)) return "";
+      return "https://www.facebook.com/groups/" + idOnly;
+    }
+    if (SYSTEM_GROUP_URL.test("/groups/" + m[1])) return "";
+    return "https://www.facebook.com/groups/" + m[1];
   }
 
   content.dom = {

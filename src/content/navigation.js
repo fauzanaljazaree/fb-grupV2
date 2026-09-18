@@ -37,11 +37,12 @@
   /** Sama dengan Node.DOCUMENT_POSITION_FOLLOWING (dipisah agar mudah diuji). */
   const DOC_POSITION_FOLLOWING = 4;
 
-  /** Link grup milik user? null bila halaman sistem / teks kosong / bentuk aneh. */
+  /** Link grup milik user? null bila bukan format kanonis / halaman sistem. */
   function isGroupLink(a) {
     const href = normalizeUrl(a.getAttribute("href"));
-    if (!href || SYSTEM_GROUP_URL.test(href)) return null;
-    if (!/\/groups\/\d+/.test(href) && !/\/groups\/[a-zA-Z0-9._-]+/.test(href)) return null;
+    if (!href) return null;
+    if (!/^https:\/\/(www\.|web\.)?facebook\.com\/groups\/[A-Za-z0-9._-]+\/?$/.test(href)) return null;
+    if (SYSTEM_GROUP_URL.test(href)) return null;
     if (!(a.textContent || "").trim()) return null;
     return a;
   }
@@ -130,7 +131,10 @@
     if (!groupEl) throw new Error("Grup join teratas tidak ditemukan.");
     await humanScrollToEl(groupEl);
     const groupUrl = normalizeUrl(groupEl.getAttribute("href"));
-    const groupName = (groupEl.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
+    const scraper = (content && content.scraper) || {};
+    const groupName = typeof scraper.extractGroupName === "function"
+      ? scraper.extractGroupName(groupEl)
+      : (groupEl.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
     groupEl.click();
     await sleep(randInt(1200, 2400));
     return { groupUrl: groupUrl || location.href, groupName };

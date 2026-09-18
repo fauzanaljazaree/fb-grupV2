@@ -19,7 +19,7 @@
   const { MSG, STORAGE, PAGES, LIMITS } = FBAP.config;
   const { sleep } = FBAP.time;
   const { get: storageGet, set: storageSet } = FBAP.storage;
-  const { waitTabLoaded, ensureContentScript, sendToContent } = background.tabs;
+  const { waitTabLoaded, ensureContentScript, sendToContent, focusDashboard } = background.tabs;
   const { log } = background.messaging;
 
   const ACTIVE_SCAN_STATES = ["loading", "scanning"];
@@ -98,6 +98,8 @@
       if (tab && tab.id) {
         try { await chrome.tabs.remove(tab.id); } catch (e) { /* tab sudah tertutup */ }
       }
+      /* Kembalikan fokus ke tab dashboard agar hasil scan langsung terlihat. */
+      try { await focusDashboard(); } catch (e) { /* abaikan */ }
     }
   }
 

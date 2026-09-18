@@ -24,11 +24,52 @@
 
   /* ---------- PENGUMPUL ANCHOR (dipakai kedua mode) ---------- */
 
-  /** Anchor grup valid: bukan halaman sistem + punya id grup. */
+  /** Pola keterangan aktivitas FB yang menempel di belakang nama grup
+      (ID & EN). Hanya pola PANJANG yang di-strip; kata tunggal seperti
+      "Terakhir" di tengah nama asli TIDAK disentuh. */
+  const ACTIVITY_SUFFIX =
+    /\s*(Terakhir\s+aktif.*|Aktif\s+.*(lalu|yang\s+lalu).*|Terakhir\s+dilihat.*|Last\s+active.*|Active\s+.*\bago\b.*|\d+\s*(anggota|members?).*|\d+\s*postingan?.*)$/i;
+
+  /** Perbaiki tempelan tanpa spasi ("KebumenTerakhir") -> "Kebumen Terakhir". */
+  function splitGluedActivity(t) {
+    return (t || "").replace(
+      /([a-z\u00C0-\u024F\u1E00-\u1EFF0-9])(Terakhir|Aktif|Active|Last|Baru|New|Dilihat|Anggota|Member)/,
+      "$1 $2"
+    );
+  }
+
+  /** Ambil nama grup bersih dari anchor:
+      1) span/div anak pertama yang meaningful (nama selalu di atas
+         keterangan aktivitas), 2) aria-label, 3) fallback textContent +
+         strip suffix aktivitas. Potong SEBELUM kata "Terakhir" dkk. */
+  function extractGroupName(a) {
+    if (!a) return "";
+    const kids = a.querySelectorAll ? a.querySelectorAll("span, div[dir='auto']") : [];
+    for (const k of kids) {
+      const t = ((k.textContent || "").trim().replace(/\s+/g, " "));
+      if (!t || t.length < 2) continue;
+      if (ACTIVITY_SUFFIX.test(t)) continue;
+      if (/^(Terakhir\s+aktif|Aktif\s+.*lalu|Last\s+active|Active\s+.*ago)/i.test(t)) continue;
+      return t.slice(0, 120);
+    }
+    const aria = (a.getAttribute && a.getAttribute("aria-label")) || "";
+    if (aria && !ACTIVITY_SUFFIX.test(aria.trim())) {
+      return aria.trim().replace(/\s+/g, " ").slice(0, 120);
+    }
+    let full = (a.textContent || "").trim().replace(/\s+/g, " ");
+    full = splitGluedActivity(full);
+    full = full.replace(ACTIVITY_SUFFIX, "").trim();
+    return full.slice(0, 120);
+  }
+
+  /** URL grup valid = TEPAT format kanonis
+      https://www.facebook.com/groups/{id} (id angka ATAU slug teks).
+      Selain format ini -> false (jangan disimpan). */
   function isValidGroupHref(url) {
     if (!url) return false;
+    if (!/^https:\/\/(www\.|web\.)?facebook\.com\/groups\/[A-Za-z0-9._-]+\/?$/.test(url)) return false;
     if (SYSTEM_GROUP_URL.test(url)) return false;
-    return /\/groups\/(\d+|[a-zA-Z0-9._-]+)/.test(url);
+    return true;
   }
 
   /** Kumpulkan grup dari a[href*="/groups/"] di bawah root ke Map by url. */
@@ -40,7 +81,7 @@
       const url = normalizeUrl(a.getAttribute("href"));
       if (!isValidGroupHref(url)) return;
       if (groups.has(url)) return;
-      const name = (a.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
+      const name = extractGroupName(a);
       if (!name) return;
       groups.set(url, { name, url });
       added++;
@@ -162,27 +203,49 @@
     catch (e) { /* abaikan */ }
   }
 
+  /** Tunggu adaptif pasca-scroll: cek tiap 500ms hingga 5 detik, keluar
+      lebih awal begitu grup/scollHeight bertambah (tanda lazy-load
+      merespons). Koneksi cepat -> lanjut <1 detik; lambat -> diberi
+      waktu hingga 5 detik sebelum putaran dinilai "kosong". */
+  async function waitForGrowth(sidebar, groups, baseCount, baseHeight) {
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline) {
+      await sleep(500);
+      collectGroups(groups, sidebar);
+      collectGroups(groups, document);
+      if (groups.size > baseCount) return true;
+      try {
+        if (sidebar.scrollHeight > baseHeight + 20) return true;
+      } catch (e) { /* abaikan */ }
+    }
+    return groups.size > baseCount;
+  }
+
   /** Mentok bawah ala lama (tunggu idle), tapi tiap tunggu diselingi
-      scroll pelan + event scroll; berhenti bila scrollTop macet 3-5x
-      (retry limit = bottom reached). */
+      scroll pelan + event scroll + tunggu adaptif; berhenti bila 3x
+      berturut-turut KETIGANYA diam (grup + tinggi DOM + posisi scroll). */
   async function waitForBottomIdle(sidebar, groups, deadline) {
-    let stable = 0;
+    let empty = 0;
     let lastCount = groups.size;
-    let stuck = 0;
+    let lastHeight = 0;
     let lastTop = -1;
-    while (stable < 3 && stuck < 5 && Date.now() < deadline) {
+    try { lastHeight = sidebar.scrollHeight || 0; } catch (e) {}
+    while (empty < 3 && Date.now() < deadline) {
       collectGroups(groups, sidebar);
       collectGroups(groups, document);
       scrollStep(sidebar);
-      await sleep(1500);
+      const grew = await waitForGrowth(sidebar, groups, lastCount, lastHeight);
       collectGroups(groups, sidebar);
       collectGroups(groups, document);
-      const grew = groups.size > lastCount;
+      let height = lastHeight;
+      try { height = sidebar.scrollHeight || 0; } catch (e) {}
       const top = sidebar.scrollTop || 0;
       const moved = top > lastTop + 2;
-      if (grew || moved) { stable = 0; if (!moved) stuck++; else stuck = 0; }
-      else { stable++; stuck++; }
+      const domGrew = height > lastHeight + 20;
+      if (grew || moved || domGrew) empty = 0;
+      else empty++;
       lastCount = groups.size;
+      lastHeight = height;
       lastTop = top;
     }
     collectGroups(groups, sidebar);
@@ -193,33 +256,41 @@
 
   /** Scan sidebar /groups/feed/ ala lama: tunggu render -> loop scroll
       pelan bertahap (maks LIMITS.SCAN_MAX_PASSES) + event scroll sintetis
-      -> collect tiap langkah -> berhenti saat stabil/macet. */
+      + tunggu adaptif -> collect tiap langkah -> berhenti setelah 3x
+      scroll tanpa grup baru (ketiga sinyal diam). */
   async function scanGroups() {
     const groups = new Map();
     await sleep(3000); /* beri waktu React FB merender sidebar */
     const sidebar = findSidebar();
     const deadline = Date.now() + LIMITS.SCAN_TAB_TIMEOUT_MS;
-    let stable = 0;
+    let empty = 0;
     let lastCount = 0;
-    let stuck = 0;
+    let lastHeight = 0;
     let lastTop = -1;
+    try { lastHeight = sidebar.scrollHeight || 0; } catch (e) {}
     for (let pass = 0; pass < LIMITS.SCAN_MAX_PASSES; pass++) {
       if (Date.now() > deadline) break;
       collectGroups(groups, sidebar);
       collectGroups(groups, document);
-      if (groups.size > lastCount) { stable = 0; lastCount = groups.size; }
-      else stable++;
+      if (groups.size > lastCount) { empty = 0; lastCount = groups.size; }
       const top = sidebar.scrollTop || 0;
-      if (top <= lastTop + 2) stuck++;
-      else stuck = 0;
+      let height = lastHeight;
+      try { height = sidebar.scrollHeight || 0; } catch (e) {}
+      const moved = top > lastTop + 2;
+      const domGrew = height > lastHeight + 20;
+      if (groups.size <= lastCount && !moved && !domGrew && pass >= 2) empty++;
+      else if (groups.size > lastCount || moved || domGrew) empty = 0;
+      lastHeight = height;
       lastTop = top;
-      if ((stable >= 4 || stuck >= 5) && pass >= 3) break;
+      if (empty >= 3 && pass >= 2) break;
       scrollStep(sidebar);
-      await sleep(1500);
+      const grew = await waitForGrowth(sidebar, groups, lastCount, lastHeight);
       collectGroups(groups, sidebar);
       collectGroups(groups, document);
-      if (groups.size > lastCount) { stable = 0; lastCount = groups.size; }
-      else stable++;
+      try { lastHeight = sidebar.scrollHeight || lastHeight; } catch (e) {}
+      if (grew || groups.size > lastCount) { empty = 0; lastCount = groups.size; }
+      else empty++;
+      if (empty >= 3 && pass >= 2) break;
       const reachedBottom =
         (sidebar.scrollTop || 0) + (sidebar.clientHeight || 0) >= (sidebar.scrollHeight || 0) - 8;
       if (reachedBottom) {
@@ -246,11 +317,10 @@
       let added = 0;
       anchors.forEach((a) => {
         const href = normalizeUrl(a.getAttribute("href"));
-        if (!href) return;
-        if (SYSTEM_GROUP_URL.test(href)) return;
+        if (!isValidGroupHref(href)) return;
         if (seen.has(href)) return;
-        const name = (a.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
-        if (!name || !/\/groups\/(\d+|[a-zA-Z0-9._-]+)/.test(href)) return;
+        const name = extractGroupName(a);
+        if (!name) return;
         seen.add(href);
         results.push({ name, url: href });
         added++;
@@ -276,5 +346,5 @@
     return results;
   }
 
-  content.scraper = { scanGroups, scrapeGroups, findSidebar, collectGroups, isValidGroupHref };
+  content.scraper = { scanGroups, scrapeGroups, findSidebar, collectGroups, isValidGroupHref, extractGroupName };
 })(globalThis);
