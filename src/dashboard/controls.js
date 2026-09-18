@@ -137,6 +137,17 @@
       }
     }
     if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS]) loadGroups();
+    /* Bus status scan (pola fb-grupV3): background menulis scanStatus,
+       dashboard membaca lewat onChanged agar UI update tanpa reload. */
+    const scanChange = changes[STORAGE.SCAN_STATUS];
+    if (scanChange) {
+      const s = scanChange.newValue;
+      if (s && s.state) {
+        $("scanMessage").textContent = s.message || `Status scan: ${s.state}`;
+        addLog(`Scan grup (${s.state}): ${s.message || "-"}`, s.state === "error" ? "err" : s.state === "done" ? "ok" : "info");
+        $("btnScrape").disabled = s.state === "scanning" || s.state === "loading";
+      }
+    }
     if (changes[STORAGE.MATERIALS]) {
       State.materials = changes[STORAGE.MATERIALS].newValue || [];
       renderMaterials();

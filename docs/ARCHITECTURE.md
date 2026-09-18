@@ -30,7 +30,7 @@ ke satu namespace: **`globalThis.FBAP`**.
 
 ```
 Background : shared/config → shared/random → shared/time → shared/storage
-             → state → power → messaging → tabs → scheduler   (via importScripts)
+             → state → power → messaging → tabs → scan → scheduler   (via importScripts)
 
 Content    : shared/config → shared/random → shared/time → shared/spintax
              → selectors → dom → stealth → media → navigation → scraper
@@ -57,7 +57,9 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `EXECUTE_POST` | background → content | `caption, mediaDataUrl, mediaMime, mediaName` | `postToGroup()`: inti media-dulu+caption → klik Posting → verifikasi composer tertutup, balas `{ok, error}` |
 | `TEST_POST` | dashboard → background | – | Uji workflow penuh: navigasi + materi pertama ber-media + `EXECUTE_TEST_POST`, balas `{ok, dialog, editorText, error?}` |
 | `EXECUTE_TEST_POST` | background → content | `caption, mediaDataUrl, mediaMime, mediaName` | `testCompose()`: uploadMedia DULU (GATE preview blob) → query editor ulang → `typeCaption()` anti-dobel → STOP tanpa klik Posting, balas `{ok, dialog, editorText}` |
-| `EXECUTE_SCRAPE` | background → content | – | Scraper daftar grup (fitur nonaktif) |
+| `EXECUTE_SCRAPE` | background → content | – | Scraper daftar grup mode lama (scroll window) |
+| `START_SCAN` | dashboard → background | – | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js` |
+| `SCAN_GROUPS` | background → content | – | `scanGroups()`: loop scroll sidebar (maks 80 pass) + kumpulkan `a[href*="/groups/"]`, balas `{ok, sourceUrl, scannedAt, groups}` |
 | `START_POSTING` | dashboard → background | `{materials, settings}` | Bangun antrean + mulai alarm |
 | `STOP_POSTING` | dashboard → background | – | Hentikan antrean & lepas keep-awake |
 | `GET_STATUS` | dashboard → background | – | `{ok, running, recovered?}` — status dihitung dari memori + alarm; status basi dibersihkan |

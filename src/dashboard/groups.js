@@ -11,7 +11,7 @@
 
   const FBAP = (root.FBAP = root.FBAP || {});
   const dashboard = (FBAP.dashboard = FBAP.dashboard || {});
-  const { STORAGE } = FBAP.config;
+  const { MSG, STORAGE } = FBAP.config;
   const { get, setStrict } = FBAP.storage;
   const { State } = dashboard.state;
   const { $, escapeHtml, addLog } = dashboard.ui;
@@ -77,19 +77,46 @@
     renderGroups();
   });
 
-  /* FITUR SCRAPING DINONAKTIFKAN — mode input langsung.
-     Grup dipilih otomatis oleh background via navigasi natural
-     home -> Grup -> sidebar -> klik grup teratas. */
-  $("btnScrape").addEventListener("click", () => {
-    addLog('Scraping dinonaktifkan. Saat "Mulai Posting", grup dipilih otomatis dari sidebar FB.', "warn");
+  /* ---------------- SCAN GRUP (pola fb-grupV3) ----------------
+     Tombol ini HANYA pemicu: kirim START_SCAN ke background lalu
+     keluar. Eksekusi berat (tab sementara + scroll sidebar) ada di
+     background/scan.js + content/scraper.js. Hasil & status scan
+     dibaca lewat chrome.storage.onChanged di controls.js. */
+  $("btnScrape").addEventListener("click", async () => {
+    const btn = $("btnScrape");
+    btn.disabled = true; /* disabled optimis; di-enable lagi oleh onChanged */
+    $("scanMessage").textContent = "Meminta background memulai scan...";
+    try {
+      const res = await new Promise((resolve) => {
+        chrome.runtime.sendMessage({ type: MSG.START_SCAN }, (r) => {
+          if (chrome.runtime.lastError) resolve({ ok: false, error: chrome.runtime.lastError.message });
+          else resolve(r);
+        });
+      });
+      if (!res || !res.ok || res.accepted === false) {
+        throw new Error((res && res.error) || "Scan sedang berjalan.");
+      }
+      $("scanMessage").textContent = "Tab baru dibuka. Scan berjalan — hasil akan muncul otomatis di tabel.";
+      addLog("Scan grup dimulai: tab /groups/feed/ dibuka oleh background.", "info");
+    } catch (e) {
+      $("scanMessage").textContent = e.message;
+      btn.disabled = false;
+    }
   });
 
   $("btnDeleteGroups").addEventListener("click", async () => {
-    await setStrict({ [STORAGE.GROUPS]: [], [STORAGE.SELECTED_GROUPS]: [] }).catch(() => {});
-    State.groups = [];
-    State.selected = new Set();
+    /* Hanya grup yang dicentang (State.selected) yang dihapus. */
+    if (!State.selected.size) {
+      addLog("Tidak ada grup yang dicentang — centang dulu grup yang ingin dihapus.", "warn");
+      return;
+    }
+    const doomed = new Set(State.selected);
+    State.groups = State.groups.filter((g) => !doomed.has(g.url));
+    /* Bersihkan seleksi yang URL-nya sudah tidak ada (anti URL yatim). */
+    State.selected = new Set([...State.selected].filter((u) => State.groups.some((g) => g.url === u)));
+    await setStrict({ [STORAGE.GROUPS]: State.groups, [STORAGE.SELECTED_GROUPS]: [...State.selected] }).catch(() => {});
     renderGroups();
-    addLog("Data grup dihapus dari storage.", "warn");
+    addLog(`${doomed.size} grup dihapus dari storage.`, "warn");
   });
 
   dashboard.groups = { loadGroups, renderGroups, matchesFilter };

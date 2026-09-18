@@ -25,6 +25,7 @@ fbGrup-AutoPosting/
 │  │  ├─ power.js           #   chrome.power keep-awake
 │  │  ├─ messaging.js       #   log, setRunning, broadcastQueueInfo
 │  │  ├─ tabs.js            #   tab FB/dashboard, injeksi content script
+│  │  ├─ scan.js            #   orkestrator scan grup (tab sementara)
 │  │  └─ scheduler.js       #   antrean + alarm + processNextPost
 │  ├─ content/              # content script (urut, satu isolated world)
 │  │  ├─ content.js         #   entry: message router saja
@@ -40,7 +41,7 @@ fbGrup-AutoPosting/
 │     ├─ ui.js              #   $, escapeHtml, addLog, setStatus
 │     ├─ materials.js       #   import Excel/CSV + folder media
 │     ├─ settings.js        #   pengaturan anti-bot & limit
-│     ├─ groups.js          #   tabel grup + pencarian
+│     ├─ groups.js          # scan grup (START_SCAN) + tabel + pencarian
 │     ├─ controls.js        #   start/stop, tab FB, event realtime
 │     └─ main.js            #   entry: catch error global + init()
 ├─ docs/ARCHITECTURE.md     # detail arsitektur, protokol pesan, konvensi

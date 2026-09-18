@@ -24,7 +24,8 @@
   /* ---------------- HALAMAN & URL ---------------- */
   const PAGES = {
     DASHBOARD: "dashboard.html",
-    FB_HOME: "https://www.facebook.com/"
+    FB_HOME: "https://www.facebook.com/",
+    GROUPS_FEED: "https://www.facebook.com/groups/feed/"
   };
 
   /* ---------------- KUNCI chrome.storage.local ----------------
@@ -39,7 +40,9 @@
     UI: "ui",
     POSTING_LOGS: "postingLogs",
     GROUPS: "groups",
-    SELECTED_GROUPS: "selectedGroups"
+    SELECTED_GROUPS: "selectedGroups",
+    SCAN_STATUS: "scanStatus",
+    LAST_SCAN: "lastScan"
   };
 
   /* ---------------- TIPE PESAN ANTAR KONTEKS ----------------
@@ -59,6 +62,10 @@
     BACK_TO_DASHBOARD: "BACK_TO_DASHBOARD",
     OPEN_COMPOSER: "OPEN_COMPOSER",
     TEST_POST: "TEST_POST",
+    /* dashboard -> background: mulai scan daftar grup (tab sementara) */
+    START_SCAN: "START_SCAN",
+    /* background -> content script: jalankan scanGroups() di sidebar */
+    SCAN_GROUPS: "SCAN_GROUPS",
     /* background -> content script */
     PING: "PING",
     EXECUTE_SCRAPE: "EXECUTE_SCRAPE",
@@ -72,7 +79,12 @@
   const LIMITS = {
     MAX_LOG_ENTRIES: 500,                 /* baris log terakhir yang disimpan */
     MAX_ALARM_DELAY_MS: 12 * 3600 * 1000, /* jeda maksimum satu alarm */
-    MIN_ALARM_DELAY_MS: 5000
+    MIN_ALARM_DELAY_MS: 5000,
+    /* Scan daftar grup (START_SCAN) */
+    SCAN_TAB_TIMEOUT_MS: 90000,           /* tunggu tab /groups/feed "complete" */
+    SCAN_SETTLE_MS: 2000,                 /* jeda render React FB sebelum scan */
+    SCAN_MAX_PASSES: 80,                  /* batas loop scroll sidebar */
+    SCAN_MSG_TIMEOUT_MS: 120000           /* timeout chrome.tabs.sendMessage scan */
   };
 
   /* ---------------- DAFTAR FILE CONTENT SCRIPT ----------------

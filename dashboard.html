@@ -515,17 +515,18 @@
         </div>
       </section>
 
-      <!-- ============ DATA GRUP (DINONAKTIFKAN — mode input langsung) ============ -->
+      <!-- ============ DATA GRUP (scan via background) ============ -->
       <section class="card span-12">
-        <h2><span class="ic">👥</span> Manajemen Data Grup <span style="font-size: 11px; color: var(--amber); font-weight: 600">(nonaktif)</span></h2>
-        <div class="hint">Fitur scraping dimatikan. Saat &quot;Mulai Posting&quot; diklik, grup dipilih otomatis dari sidebar FB melalui navigasi natural.</div>
+        <h2><span class="ic">👥</span> Manajemen Data Grup</h2>
+        <div class="hint">Klik &quot;Ambil Data Grup FB&quot; untuk membuka tab sementara /groups/feed/, scan sidebar otomatis, lalu hasilnya digabung ke tabel di bawah (duplikat by URL dihilangkan).</div>
         <div class="toolbar">
           <button class="btn" id="btnScrape">🔄 Ambil Data Grup FB</button>
-          <button class="btn danger" id="btnDeleteGroups">🗑️ Hapus Data Grup</button>
+          <button class="btn danger" id="btnDeleteGroups">🗑️ Hapus yang Dipilih</button>
           <input type="search" id="searchGroup" class="grow" placeholder="Cari nama grup / URL..." />
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px"> <input type="checkbox" id="chkSelectAll" /> Pilih Semua </label>
           <span class="count-chip" id="groupCount">0 grup</span>
         </div>
+        <p id="scanMessage" role="status" style="font-size: 12.5px; color: var(--muted); min-height: 16px; margin: -6px 0 0"></p>
         <div class="tbl-wrap">
           <table>
             <thead>

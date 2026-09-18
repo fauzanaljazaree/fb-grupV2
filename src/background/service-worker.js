@@ -23,6 +23,7 @@ importScripts(
   "power.js",
   "messaging.js",
   "tabs.js",
+  "scan.js",
   "scheduler.js"
 );
 
@@ -35,6 +36,7 @@ importScripts(
   const { keepAwakeOn } = FBAP.background.power;
   const { startPosting, stopPosting, processNextPost, getStatus, openComposerFromHome, testPostFirstMaterial, ALARM_NAME } = FBAP.background.scheduler;
   const { openDashboard, focusDashboard, showFbTab } = FBAP.background.tabs;
+  const { runScan, isScanActive } = FBAP.background.scan;
 
   /* =========================================================
      MESSAGE ROUTER (dari dashboard)
@@ -73,6 +75,17 @@ importScripts(
         case MSG.TEST_POST:
           if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
           sendResponse(await testPostFirstMaterial());
+          break;
+        case MSG.START_SCAN:
+          /* Guard anti-dobel: tolak bila scan masih aktif. runScan
+             fire-and-forget — hasil dibaca dashboard via storage.onChanged. */
+          if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
+          if (await isScanActive()) {
+            sendResponse({ ok: false, accepted: false, error: "Scan sedang berjalan." });
+            break;
+          }
+          runScan().catch(() => {});
+          sendResponse({ ok: true, accepted: true });
           break;
         case MSG.BACK_TO_DASHBOARD:
           if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;

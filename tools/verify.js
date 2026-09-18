@@ -301,12 +301,14 @@ function loadScripts(sandbox, files, baseDir) {
 function checkLoadBackground() {
   const ctx = loadScripts(makeSandbox(makeChromeStub({})), ["src/background/service-worker.js"], "src/background");
   const bg = ctx.FBAP && ctx.FBAP.background;
-  const need = ["state", "power", "messaging", "tabs", "scheduler"];
+  const need = ["state", "power", "messaging", "tabs", "scan", "scheduler"];
   const missing = need.filter((k) => !bg || !bg[k]);
   report(missing.length === 0, "Modul background terdaftar (importScripts)", missing.join(", "));
   const api = ["startPosting", "stopPosting", "processNextPost", "sendToContent", "ensurePostTab", "getStatus"];
   const missingApi = api.filter((fn) => !bg || !bg.scheduler[fn] && !bg.tabs[fn]);
   report(missingApi.length === 0, "API background lengkap", missingApi.join(", "));
+  const scanApi = ["runScan", "isScanActive"].filter((fn) => !bg || !bg.scan || typeof bg.scan[fn] !== "function");
+  report(scanApi.length === 0, "API background.scan lengkap (runScan, isScanActive)", scanApi.join(", "));
 }
 function checkLoadContent() {
   const ctx = loadScripts(makeSandbox(makeChromeStub({}), makeDomStub()), extractContentFiles(), "");
@@ -715,7 +717,54 @@ function checkTestPostWiring() {
   );
 }
 
-/* ---------- 10. RUNNER ---------- */
+/* ---------- 10. WIRING WORKFLOW SCAN (pola fb-grupV3) ----------
+   Dashboard hanya pemicu START_SCAN; background orkestrasi tab
+   sementara + guard; content scanGroups() loop sidebar. */
+function checkScanWiring() {
+  const sw = read("src/background/service-worker.js").replace(/\r/g, "");
+  const scan = read("src/background/scan.js").replace(/\r/g, "");
+  const groups = read("src/dashboard/groups.js").replace(/\r/g, "");
+  const content = read("src/content/content.js").replace(/\r/g, "");
+  const scraper = read("src/content/scraper.js").replace(/\r/g, "");
+
+  report(
+    /MSG\.START_SCAN[\s\S]*?isScanActive\(\)[\s\S]*?runScan\(\)/.test(sw),
+    "Router background: START_SCAN -> guard isScanActive -> runScan fire-and-forget",
+    "ok"
+  );
+  report(
+    /tabs\.create[\s\S]*?waitTabLoaded[\s\S]*?requestScan[\s\S]*?mergeGroups[\s\S]*?tabs\.remove/.test(scan),
+    "scan.js: tabs.create -> waitTabLoaded -> requestScan -> mergeGroups -> tabs.remove",
+    "ok"
+  );
+  report(
+    /isScanActive[\s\S]*?SCANNING|scanning/.test(scan),
+    "scan.js: guard status loading/scanning (anti dobel scan)",
+    "ok"
+  );
+  report(
+    /MSG\.START_SCAN/.test(groups) && !/querySelectorAll|humanScroll/.test(groups),
+    "Dashboard hanya mengirim START_SCAN (tanpa scraping di dashboard)",
+    "ok"
+  );
+  report(
+    /MSG\.SCAN_GROUPS[\s\S]*?scanGroups\(\)/.test(content),
+    "Router content script menangani SCAN_GROUPS dengan scanGroups()",
+    "ok"
+  );
+  report(
+    /function scanGroups[\s\S]*?findSidebar\(\)[\s\S]*?SCAN_MAX_PASSES[\s\S]*?collectGroups/.test(scraper),
+    "scanGroups(): findSidebar + collectGroups + loop dibatasi SCAN_MAX_PASSES",
+    "ok"
+  );
+  report(
+    /function requestScan[\s\S]*?ensureContentScript/.test(scan),
+    "requestScan() punya fallback inject content script bila belum siap",
+    "ok"
+  );
+}
+
+/* ---------- 11. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
   const files = checkSyntax();
@@ -726,6 +775,7 @@ function checkTestPostWiring() {
   checkMsgConstants();
   checkPostingUsesComposerChain();
   checkTestPostWiring();
+  checkScanWiring();
   checkParity();
   checkLoadBackground();
   checkLoadContent();

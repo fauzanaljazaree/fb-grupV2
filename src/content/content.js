@@ -13,7 +13,7 @@
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
   const { MSG } = FBAP.config;
-  const { scrapeGroups } = content.scraper;
+  const { scrapeGroups, scanGroups } = content.scraper;
   const { navHomeToGroup } = content.navigation;
   const { postToGroup, openComposer, testCompose } = content.posting;
 
@@ -30,6 +30,11 @@
         if (msg.type === MSG.EXECUTE_SCRAPE) {
           const groups = await scrapeGroups();
           sendResponse({ ok: true, groups, count: groups.length });
+        } else if (msg.type === MSG.SCAN_GROUPS) {
+          /* Pola fb-grupV3: scan sidebar /groups/feed/ lalu kirim
+             hasil mentah; penggabungan dilakukan background. */
+          const result = await scanGroups();
+          sendResponse({ ok: true, ...result });
         } else if (msg.type === MSG.NAV_HOME_TO_GROUP) {
           const info = await navHomeToGroup();
           sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
