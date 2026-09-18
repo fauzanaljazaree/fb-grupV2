@@ -3,7 +3,8 @@
 Ekstensi posting otomatis ke grup Facebook dengan simulasi aktivitas manusia
 (anti-bot stealth). Mode aktif: **input langsung** — caption & media dikirim dari
 dashboard, grup dipilih otomatis oleh background melalui navigasi natural
-(home → Grup → sidebar → klik grup teratas).
+(home → Grup → sidebar → klik grup teratas). Rantai navigasi yang sama bisa
+diuji tanpa memposting apa pun lewat tombol **🧪 Uji Buka Composer**.
 
 ## Struktur Folder
 
@@ -56,6 +57,10 @@ fbGrup-AutoPosting/
 3. Klik ikon ekstensi untuk membuka dashboard.
 4. Import materi (Excel/CSV kolom `Caption` & `Media_Name`), pilih folder media,
    lalu tekan **Mulai Posting**.
+5. Untuk memastikan jalur navigasi (dan login FB) sehat tanpa memposting apa pun,
+   klik **🧪 Uji Buka Composer**: background membuka homepage FB, mengklik menu
+   **Grup** di sidebar, memilih grup teratas, lalu membuka composer grup tersebut.
+   Hasil (nama & URL grup) tampil di Live Log dan antrean posting tidak tersentuh.
 
 ## Troubleshooting
 
@@ -77,12 +82,13 @@ fbGrup-AutoPosting/
 node tools/verify.js
 ```
 
-Memeriksa (25 check): sintaks semua file JS, kode mati, konsistensi id DOM
+Memeriksa (30 check): sintaks semua file JS, kode mati, konsistensi id DOM
 dashboard, sinkronisasi `manifest.json` ↔ `FBAP.config.CONTENT_SCRIPT_FILES`,
 urutan `<script>` dashboard, konstanta pesan, paritas nama fungsi & tipe pesan
 dengan versi sebelum refactor (`backups/pre-refactor/`), smoke test pemuatan
-seluruh modul memakai `vm` + stub `chrome`/`document`, serta pemulihan status
-basi (tombol **Mulai Posting** tidak terkunci oleh sesi lama).
+seluruh modul memakai `vm` + stub `chrome`/`document`, pemulihan status
+basi (tombol **Mulai Posting** tidak terkunci oleh sesi lama), serta uji rantai
+navigasi `home → grup → composer` di atas DOM Facebook tiruan.
 
 ## Aturan Main (Konvensi)
 

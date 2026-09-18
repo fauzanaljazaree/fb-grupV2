@@ -4,6 +4,15 @@
    Step 2: klik menu "Grup" di sidebar kiri
    Step 3: scroll sidebar, lalu klik grup pertama setelah
            heading "Grup yang Anda bergabung di dalamnya"
+
+   CATATAN STRATEGI PENCARIAN GRUP
+   Di layout Facebook saat ini, daftar grup berada di CABANG
+   SIBLING dari heading, bukan di ancestor heading: hasil ukur
+   DOM nyata menunjukkan penelusuran ke atas 6 hop hanya berisi
+   0-1 anchor (itu pun "Buat Grup Baru"). Jadi pencarian utama
+   memakai URUTAN DOKUMEN (compareDocumentPosition) dan
+   penelusuran ancestor hanya dipakai sebagai fallback layout
+   lama.
    ========================================================= */
 
 (function (root) {
@@ -17,30 +26,79 @@
   const { waitForSelector, waitForUrlContains, normalizeUrl } = content.dom;
   const { humanScrollToEl, humanScrollSidebar } = content.stealth;
 
+  /** Kata kunci heading daftar grup (ID & EN). Terbukti cocok di DOM nyata. */
+  const JOINED_HEADING_KW = [
+    "grup yang anda bergabung",
+    "groups you've joined",
+    "groups you joined",
+    "grup yang anda ikuti"
+  ];
+
+  /** Sama dengan Node.DOCUMENT_POSITION_FOLLOWING (dipisah agar mudah diuji). */
+  const DOC_POSITION_FOLLOWING = 4;
+
+  /** Link grup milik user? null bila halaman sistem / teks kosong / bentuk aneh. */
+  function isGroupLink(a) {
+    const href = normalizeUrl(a.getAttribute("href"));
+    if (!href || SYSTEM_GROUP_URL.test(href)) return null;
+    if (!/\/groups\/\d+/.test(href) && !/\/groups\/[a-zA-Z0-9._-]+/.test(href)) return null;
+    if (!(a.textContent || "").trim()) return null;
+    return a;
+  }
+
+  /** Link grup valid pertama yang berada SETELAH heading dalam urutan dokumen. */
+  function firstGroupAfter(heading, root) {
+    const anchors = root.querySelectorAll('a[role="link"][href*="/groups/"]');
+    for (const a of anchors) {
+      const valid = isGroupLink(a);
+      if (!valid) continue;
+      if (heading.compareDocumentPosition &&
+          !(heading.compareDocumentPosition(valid) & DOC_POSITION_FOLLOWING)) continue;
+      return valid;
+    }
+    return null;
+  }
+
+  /** Fallback layout lama: link grup ada di salah satu ancestor heading. */
+  function firstGroupInAncestors(heading) {
+    let node = heading.parentElement;
+    let hops = 0;
+    while (node && hops < 6) {
+      const anchors = node.querySelectorAll('a[role="link"][href*="/groups/"]');
+      for (const a of anchors) {
+        const valid = isGroupLink(a);
+        if (valid) return valid;
+      }
+      node = node.parentElement;
+      hops++;
+    }
+    return null;
+  }
+
+  /** Fallback terakhir: link grup valid pertama di seluruh sidebar. */
+  function firstGroupInSidebar(root) {
+    const anchors = root.querySelectorAll('a[role="link"][href*="/groups/"]');
+    for (const a of anchors) {
+      const valid = isGroupLink(a);
+      if (valid) return valid;
+    }
+    return null;
+  }
+
   /** Cari grup pertama setelah heading "Grup yang Anda bergabung di dalamnya". */
   async function findTopJoinedGroup(root) {
     const start = Date.now();
-    const kw = ["grup yang anda bergabung", "groups you've joined", "groups you joined", "grup yang anda ikuti"];
     while (Date.now() - start < 15000) {
       const headings = root.querySelectorAll("h2, [role='heading']");
       for (let i = 0; i < headings.length; i++) {
         const t = (headings[i].textContent || "").toLowerCase().trim();
-        if (!kw.some((k) => t.includes(k))) continue;
-        // Ambil semua link grup di bawah heading ini, ambil yang pertama valid
-        let node = headings[i].parentElement;
-        let hops = 0;
-        while (node && hops < 6) {
-          const links = node.querySelectorAll('a[role="link"][href*="/groups/"]');
-          for (const a of links) {
-            const href = normalizeUrl(a.getAttribute("href"));
-            if (!href || SYSTEM_GROUP_URL.test(href)) continue;
-            if (!/\/groups\/\d+/.test(href) && !/\/groups\/[a-zA-Z0-9._-]+/.test(href)) continue;
-            if (!(a.textContent || "").trim()) continue;
-            return a;
-          }
-          node = node.parentElement;
-          hops++;
-        }
+        if (!JOINED_HEADING_KW.some((k) => t.includes(k))) continue;
+        /* Urutan percobaan: urutan dokumen (layout sekarang) -> ancestor
+           (layout lama) -> seluruh sidebar (jaring pengaman). */
+        const found = firstGroupAfter(headings[i], root) ||
+                      firstGroupInAncestors(headings[i]) ||
+                      firstGroupInSidebar(root);
+        if (found) return found;
       }
       await sleep(500);
     }

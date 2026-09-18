@@ -12,6 +12,7 @@
    7. Smoke test pemuatan modul (vm + stub chrome/document).
    8. Pemulihan status basi: tombol "Mulai Posting" tidak boleh terkunci
       oleh kunci `status` yang tertinggal dari sesi lama.
+   9. Rantai navigasi home -> grup -> composer (DOM Facebook tiruan).
    ========================================================= */
 
 "use strict";
@@ -445,7 +446,276 @@ function checkStatusRecovery() {
     });
 }
 
-/* ---------- 9. RUNNER ---------- */
+/* ---------- 9. UJI RANTAI NAVIGASI: HOME -> GRUP -> COMPOSER ----------
+   Content script asli (config -> ... -> content.js) dijalankan di atas DOM
+   Facebook tiruan, lalu router dipanggil dengan NAV_HOME_TO_COMPOSER.
+   Diperiksa: urutan klik natural (menu "Grup" -> grup teratas -> trigger
+   composer), grup pertama dari sidebar yang terpilih, dan editor
+   contenteditable terdeteksi sebagai bukti composer benar-benar terbuka. */
+function makeFakeFbDom() {
+  const state = { href: "https://www.facebook.com/", clicked: [], composerOpen: false };
+  const size = (width, height) => ({ width, height, top: 0, left: 0 });
+  const genericEl = (text) => ({
+    textContent: text || "",
+    style: {},
+    scrollTop: 0,
+    scrollHeight: 400,
+    clientHeight: 300,
+    offsetParent: {},
+    isConnected: true,
+    order: 0,
+    scrollIntoView: noop,
+    focus: noop,
+    setAttribute: noop,
+    hasAttribute: () => false,
+    dispatchEvent: noop,
+    querySelector: () => null,
+    querySelectorAll: () => [],
+    getBoundingClientRect: () => size(0, 0),
+    /* Urutan dokumen: 4 = DOCUMENT_POSITION_FOLLOWING, cukup untuk kode produksi
+       yang hanya menguji bit tersebut. */
+    compareDocumentPosition(other) {
+      return other && other.order > this.order ? 4 : 0;
+    }
+  });
+
+  /* Sidebar homepage: menu "Grup" (GRUP_LINK). Klik memindahkan URL seperti SPA. */
+  const grupLink = Object.assign(genericEl("Grup"), {
+    getAttribute: (name) => (name === "href" ? "/groups/?ref=bookmarks" : ""),
+    getBoundingClientRect: () => size(220, 36),
+    click: () => {
+      state.clicked.push("menu-grup");
+      state.href = "https://www.facebook.com/groups/feed/";
+    }
+  });
+
+  /* Link grup pertama di sidebar daftar grup.
+     order=10 > heading.order=5: meniru DOM nyata di mana link grup berada
+     SETELAH heading dalam urutan dokumen (diagnostic perHop=[0,1,1,1,1,1]). */
+  const groupLink = Object.assign(genericEl("Grup Jualan Komando45"), {
+    order: 10,
+    getAttribute: (name) => (name === "href" ? "/groups/123456789" : ""),
+    getBoundingClientRect: () => size(220, 32),
+    click: () => {
+      state.clicked.push("pilih-grup");
+      state.href = "https://www.facebook.com/groups/123456789/";
+    }
+  });
+
+  /* Heading "Grup yang Anda bergabung..." — cabang ancestor-nya SENGAJA
+     TIDAK berisi link grup (persis DOM nyata: perHop=[0,1,1,1,1,1] hanya
+     berisi "Buat Grup Baru"). findTopJoinedGroup harus menemukan groupLink
+     lewat urutan dokumen (firstGroupAfter), bukan lewat ancestor. */
+  const heading = Object.assign(genericEl("Grup yang Anda bergabung di dalamnya"), {
+    order: 5,
+    parentElement: genericEl("")
+  });
+  const sidebar = Object.assign(genericEl(""), {
+    querySelectorAll: (sel) => {
+      if (sel.indexOf("h2") !== -1) return [heading];
+      if (sel.indexOf("groups/") !== -1) return [groupLink];
+      return [];
+    }
+  });
+
+  /* Trigger composer + editor di halaman grup. */
+  const trigger = Object.assign(genericEl("Tulis sesuatu..."), {
+    getBoundingClientRect: () => size(600, 40),
+    click: () => {
+      state.clicked.push("trigger-composer");
+      state.composerOpen = true;
+    }
+  });
+  const editor = Object.assign(genericEl(""), {
+    getAttribute: (name) => (name === "aria-placeholder" ? "Buat postingan..." : ""),
+    hasAttribute: (name) => name === "data-lexical-editor",
+    getBoundingClientRect: () => size(520, 64)
+  });
+
+  const inGroupsPage = () => state.href.indexOf("/groups/") !== -1;
+  return {
+    state,
+    location: {
+      get href() { return state.href; },
+      set href(v) { state.href = v; }
+    },
+    document: {
+      body: genericEl(""),
+      scrollingElement: genericEl(""),
+      documentElement: genericEl(""),
+      querySelector: (sel) => {
+        if (sel.indexOf("bookmarks") !== -1) return inGroupsPage() ? null : grupLink;
+        if (sel.indexOf("navigation") !== -1) return inGroupsPage() ? sidebar : null;
+        return null;
+      },
+      querySelectorAll: (sel) => {
+        if (sel.indexOf("contenteditable") !== -1) return state.composerOpen ? [editor] : [];
+        if (sel.indexOf("button") !== -1) return state.composerOpen ? [] : [trigger];
+        return [];
+      },
+      execCommand: () => true,
+      addEventListener: noop
+    }
+  };
+}
+
+async function checkHomeToComposerChain() {
+  const dom = makeFakeFbDom();
+  const listeners = [];
+  const chromeStub = makeChromeStub({});
+  chromeStub.runtime.onMessage = {
+    addListener: (fn) => listeners.push(fn),
+    removeListener: noop,
+    hasListener: () => false
+  };
+
+  const ctx = loadScripts(makeSandbox(chromeStub, dom), extractContentFiles(), "");
+  const { MSG } = ctx.FBAP.config;
+  report(
+    listeners.length === 1,
+    "Router content script terpasang sekali (guard routerReady)",
+    `listeners=${listeners.length}`
+  );
+
+  const resp = await new Promise((resolve) => {
+    const timer = setTimeout(() => resolve({ ok: false, error: "timeout harness" }), 90000);
+    listeners[0]({ type: MSG.NAV_HOME_TO_COMPOSER }, {}, (r) => {
+      clearTimeout(timer);
+      resolve(r || {});
+    });
+  });
+
+  report(
+    !!(resp && resp.ok),
+    "NAV_HOME_TO_COMPOSER membalas ok (rantai home -> grup -> composer)",
+    JSON.stringify(resp)
+  );
+  report(
+    resp.groupUrl === "https://www.facebook.com/groups/123456789" && !!resp.groupName,
+    "Grup pertama di sidebar terpilih sebagai tujuan composer",
+    `${resp.groupUrl} / ${resp.groupName}`
+  );
+  report(
+    dom.state.clicked.join(" > ") === "menu-grup > pilih-grup > trigger-composer",
+    "Urutan klik natural: menu Grup -> grup teratas -> trigger composer",
+    dom.state.clicked.join(" > ")
+  );
+  report(
+    dom.state.composerOpen === true,
+    "Editor contenteditable terdeteksi (composer benar-benar terbuka)",
+    `composerOpen=${dom.state.composerOpen}`
+  );
+}
+
+/* ---------- Check rantai posting == rantai uji composer ----------
+   Alur "Mulai Posting" wajib memakai pesan NAV_HOME_TO_COMPOSER pada
+   langkah navigasi pertamanya (sama dengan tombol "Uji Buka Composer"
+   yang terbukti bekerja), bukan NAV_HOME_TO_GROUP. */
+function checkPostingUsesComposerChain() {
+  const src = read("src/background/scheduler.js");
+  const usesComposer = /MSG\.NAV_HOME_TO_COMPOSER/.test(src);
+  const stillRawNav = /MSG\.NAV_HOME_TO_GROUP/.test(src);
+  report(usesComposer, "Langkah navigasi posting memakai NAV_HOME_TO_COMPOSER", usesComposer ? "ok" : "tidak ditemukan");
+  report(!stillRawNav, "Pesan NAV_HOME_TO_GROUP tidak lagi dipakai alur posting", stillRawNav ? "masih ada" : "bersih");
+  const posting = read("src/content/posting.js");
+  report(
+    /async function openComposer[\s\S]*findEditor\(3?0?0?0?\)/.test(posting.replace(/\r/g, "")),
+    "openComposer() idempoten (cek editor terbuka dulu sebelum klik trigger)",
+    /findEditor\(3000\)/.test(posting) ? "findEditor(3000) ok" : "pola tidak cocok"
+  );
+}
+
+/* ---------- Check wiring tombol "Uji Post" (media dulu -> caption) ----------
+   Alur tombol "Uji Post" wajib: TEST_POST (dashboard) -> testPostFirstMaterial
+   (background) -> EXECUTE_TEST_POST (content) -> testCompose yang memakai
+   uploadMedia SEBELUM typeCaption (urutan media dulu, tanpa klik Posting). */
+function checkTestPostWiring() {
+  const config = read("src/shared/config.js");
+  report(
+    /TEST_POST:\s*"TEST_POST"/.test(config) && /EXECUTE_TEST_POST:\s*"EXECUTE_TEST_POST"/.test(config),
+    "Konstanta TEST_POST & EXECUTE_TEST_POST terdaftar di FBAP.config.MSG",
+    "ok"
+  );
+
+  const controls = read("src/dashboard/controls.js");
+  report(
+    /btnTestComposer[\s\S]*?MSG\.TEST_POST/.test(controls),
+    "Tombol \"Uji Post\" mengirim pesan TEST_POST",
+    /MSG\.TEST_POST/.test(controls) ? "ok" : "OPEN_COMPOSER dipakai"
+  );
+
+  const sw = read("src/background/service-worker.js");
+  report(
+    /case MSG\.TEST_POST:[\s\S]*?testPostFirstMaterial\(\)/.test(sw.replace(/\r/g, "")),
+    "Service worker meroute TEST_POST ke scheduler.testPostFirstMaterial",
+    /testPostFirstMaterial/.test(sw) ? "ok" : "route tidak ditemukan"
+  );
+
+  const sched = read("src/background/scheduler.js");
+  report(
+    /async function testPostFirstMaterial[\s\S]*?NAV_HOME_TO_COMPOSER[\s\S]*?EXECUTE_TEST_POST/.test(sched.replace(/\r/g, "")),
+    "Uji Post memakai rantai navigasi terbukti lalu EXECUTE_TEST_POST",
+    "ok"
+  );
+
+  const content = read("src/content/content.js");
+  report(
+    /MSG\.EXECUTE_TEST_POST[\s\S]*?testCompose\(/.test(content.replace(/\r/g, "")),
+    "Router content script menangani EXECUTE_TEST_POST dengan testCompose()",
+    "ok"
+  );
+
+  const posting = read("src/content/posting.js").replace(/\r/g, "");
+  const uploadFirst = posting.indexOf("uploadMedia(");
+  const captionAfter = posting.indexOf("typeCaption(editor, finalText)");
+  report(
+    uploadFirst !== -1 && captionAfter !== -1 && uploadFirst < captionAfter,
+    "testCompose: uploadMedia DIPANGGUL SEBELUM typeCaption (urutan media dulu)",
+    uploadFirst !== -1 && captionAfter !== -1 ? `posisi ${uploadFirst} < ${captionAfter}` : "urutan salah"
+  );
+  report(
+    /async function testCompose[\s\S]*?return \{ dialog: info\.dialog/.test(posting),
+    "testCompose berhenti tanpa klik tombol Posting (dry-run)",
+    "ok"
+  );
+
+  /* ---------- Check jalur produksi (Mulai Posting) = workflow media-dulu ----------
+     postToGroup() wajib memakai inti bersama composeMediaAndCaption (urutan
+     uploadMedia sebelum typeCaption), lalu klik tombol Posting dan verifikasi
+     composer tertutup (anti false-sukses antrean). */
+  const core = posting.indexOf("async function composeMediaAndCaption");
+  const testUse = posting.indexOf("await composeMediaAndCaption(caption");
+  const prodUse = posting.indexOf("await composeMediaAndCaption(caption", testUse + 1);
+  report(
+    core !== -1 && testUse !== -1 && prodUse !== -1,
+    "postToGroup & testCompose memakai SATU inti bersama composeMediaAndCaption",
+    core !== -1 && prodUse !== -1 ? "ok" : "inti bersama tidak dipakai"
+  );
+  report(
+    /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
+    "postToGroup: inti media-dulu -> caption -> klik tombol Posting",
+    "ok"
+  );
+  report(
+    /VERIFIKASI PASCA-SUBMIT[\s\S]*?composer tertutup setelah klik Posting[\s\S]*?retry/.test(posting),
+    "postToGroup: verifikasi composer tertutup + retry (anti false-sukses)",
+    "ok"
+  );
+  const media = read("src/content/media.js").replace(/\r/g, "");
+  report(
+    /FALLBACK[\s\S]*?attachMedia\(mediaDataUrl/.test(media),
+    "uploadMedia punya fallback attachMedia (dataURL rusak tetap terlampir)",
+    "ok"
+  );
+  const schedSrc = read("src/background/scheduler.js");
+  report(
+    /EXECUTE_POST,[\s\S]*?150000/.test(schedSrc.replace(/\r/g, "")),
+    "Timeout EXECUTE_POST dinaikkan ke 150s (upload+GATE+caption+submit)",
+    /150000/.test(schedSrc) ? "ok" : "masih 90s"
+  );
+}
+
+/* ---------- 10. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
   const files = checkSyntax();
@@ -454,11 +724,14 @@ function checkStatusRecovery() {
   checkManifestSync();
   checkDashboardScriptOrder();
   checkMsgConstants();
+  checkPostingUsesComposerChain();
+  checkTestPostWiring();
   checkParity();
   checkLoadBackground();
   checkLoadContent();
   checkLoadDashboard();
   await checkStatusRecovery();
+  await checkHomeToComposerChain();
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n== Ringkasan: ${results.length - failed.length}/${results.length} check lulus ==`);

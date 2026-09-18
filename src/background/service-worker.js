@@ -33,7 +33,7 @@ importScripts(
 
   const { run, restoreState } = FBAP.background.state;
   const { keepAwakeOn } = FBAP.background.power;
-  const { startPosting, stopPosting, processNextPost, getStatus, ALARM_NAME } = FBAP.background.scheduler;
+  const { startPosting, stopPosting, processNextPost, getStatus, openComposerFromHome, testPostFirstMaterial, ALARM_NAME } = FBAP.background.scheduler;
   const { openDashboard, focusDashboard, showFbTab } = FBAP.background.tabs;
 
   /* =========================================================
@@ -65,6 +65,14 @@ importScripts(
         case MSG.VIEW_FB_TAB:
           if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
           sendResponse(await showFbTab());
+          break;
+        case MSG.OPEN_COMPOSER:
+          if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
+          sendResponse(await openComposerFromHome());
+          break;
+        case MSG.TEST_POST:
+          if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
+          sendResponse(await testPostFirstMaterial());
           break;
         case MSG.BACK_TO_DASHBOARD:
           if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;

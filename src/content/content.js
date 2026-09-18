@@ -15,7 +15,7 @@
   const { MSG } = FBAP.config;
   const { scrapeGroups } = content.scraper;
   const { navHomeToGroup } = content.navigation;
-  const { postToGroup } = content.posting;
+  const { postToGroup, openComposer, testCompose } = content.posting;
 
   /* Lindungi dari injeksi ganda (manifest + fallback executeScript)
      supaya router tidak terpasang dua kali dan sendResponse tidak
@@ -33,9 +33,21 @@
         } else if (msg.type === MSG.NAV_HOME_TO_GROUP) {
           const info = await navHomeToGroup();
           sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
+        } else if (msg.type === MSG.NAV_HOME_TO_COMPOSER) {
+          /* Rantai penuh: homepage -> sidebar "Grup" -> grup teratas -> composer
+             terbuka. Timeout trigger lebih longgar karena halaman grup baru
+             saja dimuat (SPA) setelah navHomeToGroup(). */
+          const info = await navHomeToGroup();
+          await openComposer(25000);
+          sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
         } else if (msg.type === MSG.EXECUTE_POST) {
           const ok = await postToGroup(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName);
           sendResponse({ ok, error: ok ? null : "Posting gagal" });
+        } else if (msg.type === MSG.EXECUTE_TEST_POST) {
+          /* Uji workflow: composer -> media DULU + GATE -> caption -> stop.
+             Tidak pernah klik tombol Posting. */
+          const info = await testCompose(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName);
+          sendResponse({ ok: true, ...info });
         } else if (msg.type === MSG.PING) {
           sendResponse({ ok: true, pong: true });
         } else {

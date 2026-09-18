@@ -96,6 +96,23 @@
     if (!res || !res.ok) addLog(`Gagal membuka tab FB: ${(res && res.error) || "unknown"}`, "err");
   });
 
+  /* ------- Uji workflow lengkap: navigasi -> composer -> MEDIA DULU (GATE
+     preview blob) -> caption Lexical anti-dobel -> STOP tanpa submit. -------
+     Materi diambil dari materi pertama yang media-nya tersedia. Tab FB
+     difokuskan dulu oleh background supaya langkahnya terlihat. */
+  $("btnTestComposer").addEventListener("click", async () => {
+    addLog("Uji Post: navigasi -> buka composer -> upload media (GATE) -> tulis caption (tanpa submit)...", "info");
+    const res = await sendMsg({ type: MSG.TEST_POST });
+    if (res && res.ok) {
+      addLog(
+        `Uji Post sukses di ${res.groupName || "(tanpa nama)"} — preview media ter-render & caption terisi. Tombol Posting TIDAK diklik; periksa composer di tab FB.`,
+        "ok"
+      );
+    } else {
+      addLog(`Uji Post gagal: ${(res && res.error) || "unknown"}`, "err");
+    }
+  });
+
   /* ---------------- EVENT REALTIME DARI BACKGROUND ---------------- */
   chrome.runtime.onMessage.addListener((msg) => {
     if (!msg || typeof msg !== "object") return;

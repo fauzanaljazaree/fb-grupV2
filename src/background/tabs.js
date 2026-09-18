@@ -1,6 +1,6 @@
 /* =========================================================
    FB Auto Poster - Background: Manajemen Tab
-   Satu tab FB "postTab" dipakai ulang (pinned) untuk semua
+   Satu tab FB "postTab" biasa (unpinned) dipakai ulang untuk semua
    navigasi & posting; tab dashboard dibedakan tersendiri.
    ========================================================= */
 
@@ -114,25 +114,28 @@
     });
   }
 
-  /** Pakai ulang tab FB yang ada, atau buat baru (pinned). */
+  /** Pakai ulang tab FB yang ada, atau buat baru (tab biasa, bukan pinned).
+      `pinned: false` saat update juga melepas pin pada tab lama yang masih
+      pinned dari versi sebelumnya (migrasi otomatis). */
   async function ensurePostTab(url) {
     const active = !!run.showFbTab;
     if (run.postTabId) {
       try {
         await chrome.tabs.get(run.postTabId);
-        await chrome.tabs.update(run.postTabId, { url, active, pinned: true });
+        await chrome.tabs.update(run.postTabId, { url, active, pinned: false });
         if (active) await focusTab(run.postTabId);
         /* Ambil snapshot TERBARU setelah update, bukan objek lama. */
         return await chrome.tabs.get(run.postTabId);
       } catch (e) { run.postTabId = null; }
     }
-    const tab = await chrome.tabs.create({ url, active, pinned: true });
+    const tab = await chrome.tabs.create({ url, active, pinned: false });
     run.postTabId = tab.id;
     if (active) await focusTab(run.postTabId);
     return tab;
   }
 
-  /** Tombol "Lihat Tab FB": fokus tab FB bila ada, buat baru bila belum. */
+  /** Tombol "Lihat Tab FB": fokus tab FB bila ada, buat baru bila belum.
+      Tab FB yang ditemukan selalu dilepas pin-nya agar jadi tab biasa. */
   async function showFbTab() {
     try {
       if (!run.postTabId) {
@@ -141,9 +144,10 @@
         if (fb) run.postTabId = fb.id;
       }
       if (run.postTabId) {
+        await chrome.tabs.update(run.postTabId, { pinned: false }).catch(() => {});
         await focusTab(run.postTabId);
       } else {
-        const tab = await chrome.tabs.create({ url: FB_HOME, active: true, pinned: true });
+        const tab = await chrome.tabs.create({ url: FB_HOME, active: true, pinned: false });
         run.postTabId = tab.id;
       }
       return { ok: true };

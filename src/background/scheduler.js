@@ -21,7 +21,7 @@
   const { run, FB_HOME } = background.state;
   const { keepAwakeOn, keepAwakeOff } = background.power;
   const { log, setRunning, broadcastQueueInfo } = background.messaging;
-  const { ensurePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusDashboard } =
+  const { ensurePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusTab, focusDashboard } =
     background.tabs;
 
   const ALARM_NAME = "post-tick";
@@ -57,7 +57,9 @@
     await setRunning(true);
     await log(`Antrean dibangun: ${run.queue.length} materi. Mode: navigasi natural + input langsung. Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`, "info");
     await broadcastQueueInfo();
-    scheduleNext(randInt(6, 14) * 1000);
+    /* Posting pertama LANGSUNG (tanpa alarm/jeda) — jeda acak hanya untuk
+       antar materi berikutnya (diatur scheduleNext di processNextPost). */
+    processNextPost().catch(() => {});
     return { ok: true };
   }
 
@@ -168,13 +170,16 @@
         return;
       }
 
-      /* STEP 1-3: navigasi natural (sekali saja) */
+      /* STEP 1-3: navigasi natural + buka composer (sekali saja).
+         Memakai NAV_HOME_TO_COMPOSER — rantai yang sama dengan tombol
+         "Uji Buka Composer" (terbukti berhasil di DOM nyata):
+         home -> sidebar "Grup" -> grup teratas -> composer terbuka. */
       if (!run.groupUrl) {
-        await log("Navigasi natural: home -> Grup -> sidebar -> pilih grup teratas...", "info");
+        await log("Navigasi natural: home -> Grup -> sidebar -> grup teratas -> composer...", "info");
         const navTab = await ensurePostTab(FB_HOME);
         await waitTabLoaded(navTab.id, 45000);
         await ensureContentScript(navTab.id);
-        const nav = await sendToContent(navTab.id, { type: MSG.NAV_HOME_TO_GROUP }, 120000);
+        const nav = await sendToContent(navTab.id, { type: MSG.NAV_HOME_TO_COMPOSER }, 120000);
         if (!nav || !nav.ok || !nav.groupUrl) {
           throw new Error(`Navigasi gagal: ${(nav && nav.error) || "grup tidak ditemukan"}`);
         }
@@ -197,7 +202,7 @@
         mediaDataUrl: material.mediaDataUrl || null,
         mediaMime: material.mediaMime || "application/octet-stream",
         mediaName: material.mediaName || ""
-      }, 90000);
+      }, 150000);
 
       if (res && res.ok) {
         const statsNow = (await storageGet([STORAGE.STATS]))[STORAGE.STATS] || {};
@@ -238,6 +243,78 @@
     }
   }
 
-  background.scheduler = { ALARM_NAME, startPosting, stopPosting, scheduleNext, processNextPost, getStatus };
+  /* ---------------- UJI JALUR NAVIGASI: HOME -> GRUP -> COMPOSER ----------------
+     Dipakai tombol "Uji Buka Composer" di dashboard. Berbeda dari alur posting,
+     fungsi ini TIDAK menyentuh antrean/cursor: hanya membuktikan rantai navigasi
+     natural (homepage -> sidebar "Grup" -> grup teratas -> composer terbuka)
+     berjalan. Karena dipicu manual, tab FB difokuskan selama proses (biar user
+     melihat langkahnya), lalu fokus dikembalikan ke dashboard. */
+  async function openComposerFromHome() {
+    if (run.busy) return { ok: false, error: "Background sedang memproses posting" };
+    try {
+      const tab = await ensurePostTab(FB_HOME);
+      await focusTab(tab.id);
+      await waitTabLoaded(tab.id, 45000);
+      await ensureContentScript(tab.id);
+      const res = await sendToContent(tab.id, { type: MSG.NAV_HOME_TO_COMPOSER }, 120000);
+      if (res && res.ok) {
+        await log(`Composer terbuka. Grup: ${res.groupName || "(tanpa nama)"} (${res.groupUrl || "-"}).`, "ok");
+      } else {
+        await log(`Gagal membuka composer: ${(res && res.error) || "tidak ada respons"}`, "err");
+      }
+      await focusDashboard();
+      return res || { ok: false, error: "tidak ada respons" };
+    } catch (err) {
+      await focusDashboard();
+      await log(`Error uji buka composer: ${err.message}`, "err");
+      return { ok: false, error: err.message };
+    }
+  }
+
+  /* ---------------- UJI WORKFLOW POST: MEDIA+CAPTION DI COMPOSER ----------------
+     Tombol "Uji Post" dashboard. TIDAK menyentuh antrean/cursor: pakai materi
+     pertama yang media-nya tersedia dari storage. Rantai: home -> grup ->
+     composer (NAV_HOME_TO_COMPOSER, terbukti), lalu EXECUTE_TEST_POST:
+     uploadMedia DULU + GATE preview blob -> query editor ulang -> typeCaption
+     -> STOP (user klik Posting manual). */
+  async function testPostFirstMaterial() {
+    if (run.busy) return { ok: false, error: "Background sedang memproses posting" };
+    try {
+      const st = await storageGet([STORAGE.MATERIALS]);
+      const materials = st[STORAGE.MATERIALS] || [];
+      const material = materials.find((m) => m.available && m.mediaDataUrl) || materials[0];
+      if (!material) return { ok: false, error: "Tidak ada materi. Import Excel + media dulu." };
+
+      await log(`Uji Post: navigasi home -> grup -> composer, lalu media+caption "${material.mediaName || "(tanpa media)"}"...`, "info");
+      const tab = await ensurePostTab(FB_HOME);
+      await focusTab(tab.id);
+      await waitTabLoaded(tab.id, 45000);
+      await ensureContentScript(tab.id);
+      const nav = await sendToContent(tab.id, { type: MSG.NAV_HOME_TO_COMPOSER }, 120000);
+      if (!nav || !nav.ok) {
+        throw new Error(`Navigasi gagal: ${(nav && nav.error) || "tidak ada respons"}`);
+      }
+      const res = await sendToContent(tab.id, {
+        type: MSG.EXECUTE_TEST_POST,
+        caption: material.caption || "",
+        mediaDataUrl: material.available ? material.mediaDataUrl : null,
+        mediaMime: material.mediaMime || "application/octet-stream",
+        mediaName: material.available ? (material.mediaName || "") : ""
+      }, 120000);
+      if (res && res.ok) {
+        await log(`Uji Post sukses di ${nav.groupName || "(tanpa nama)"}: media ter-lampir (GATE lolos) + caption terisi. TOMBOL POSTING TIDAK DIKLIK — periksa composer.`, "ok");
+      } else {
+        await log(`Uji Post gagal: ${(res && res.error) || "tidak ada respons"}`, "err");
+      }
+      await focusDashboard();
+      return res || { ok: false, error: "tidak ada respons" };
+    } catch (err) {
+      await focusDashboard();
+      await log(`Error uji post: ${err.message}`, "err");
+      return { ok: false, error: err.message };
+    }
+  }
+
+  background.scheduler = { ALARM_NAME, startPosting, stopPosting, scheduleNext, processNextPost, getStatus, openComposerFromHome, testPostFirstMaterial };
 })(globalThis);
 

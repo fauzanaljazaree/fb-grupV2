@@ -31,12 +31,26 @@
     'div[role="button"][aria-label*="Post"]'
   ];
 
+  /* ---------------- SELEKTOR COMPOSER (workflow uji media+caption) ----------------
+     HANYA aria-label/role/placeholder — JANGAN class dinamis FB (x9f619 dst). */
+  const COMPOSER_TRIGGER_TEXT = "Tulis sesuatu...";
+  const CAPTION_EDITOR =
+    'div[contenteditable="true"][role="textbox"][aria-placeholder="Buat postingan publik..."]';
+  const CAPTION_EDITOR_LOOSE = 'div[contenteditable="true"][role="textbox"]';
+  const FILE_INPUT = 'input[type="file"]';
+  const COMPOSER_DIALOG_LABELED = 'div[role="dialog"][aria-label="Buat postingan"]';
+
   content.selectors = {
     SYSTEM_GROUP_URL,
     GRUP_LINK,
     SIDEBAR_NAV,
     SIDEBAR_NAV_EN,
     FILE_SELECTOR,
-    POST_BUTTON_SELECTORS
+    POST_BUTTON_SELECTORS,
+    COMPOSER_TRIGGER_TEXT,
+    CAPTION_EDITOR,
+    CAPTION_EDITOR_LOOSE,
+    FILE_INPUT,
+    COMPOSER_DIALOG_LABELED
   };
 })(globalThis);

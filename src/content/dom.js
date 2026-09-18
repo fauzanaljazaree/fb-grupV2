@@ -10,7 +10,7 @@
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
   const { sleep } = FBAP.time;
-  const { POST_BUTTON_SELECTORS } = content.selectors;
+  const { POST_BUTTON_SELECTORS, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE } = content.selectors;
 
   /* ---------- PENUNGGU (WAIT) ---------- */
 
@@ -72,6 +72,81 @@
     return r.width > 200 && r.height > 15 && r.width > 50;
   }
 
+  /** Elemen terlihat? (berbasis box model, bukan class). */
+  function isElementVisible(el) {
+    return Boolean(el && (el.offsetWidth || el.offsetHeight || el.getClientRects().length));
+  }
+
+  /** Tunggu predicate() benar; kembalikan hasilnya, throw saat timeout. */
+  async function waitFor(predicate, options) {
+    const opts = options || {};
+    const timeoutMs = opts.timeoutMs || 15000;
+    const label = opts.label || "elemen";
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const result = predicate();
+      if (result) return result;
+      await sleep(250);
+    }
+    throw new Error(`Timeout menunggu ${label} (${timeoutMs}ms)`);
+  }
+
+  /* ---------- PENCARI DIALOG COMPOSER & SCOPE MEDIA (uji post) ---------- */
+
+  /** Dialog composer ASLI: dicari dari ISI (editor), bukan aria-label.
+      Temuan lapangan: composer asli = div[role="dialog"] TANPA label;
+      yang berlabel "Buat postingan" hanya kotak judul kosong.
+      Fallback loose: dialog berisi editor contenteditable + teks
+      "Tambahkan grup" (aman untuk locale EN). */
+  function findComposerDialog() {
+    const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
+    const withEditor = dialogs.filter((d) => d.querySelector(CAPTION_EDITOR));
+    if (withEditor.length) return withEditor.find(isElementVisible) || withEditor[0];
+    const loose = dialogs.filter((d) =>
+      d.querySelector(CAPTION_EDITOR_LOOSE) &&
+      Array.from(d.querySelectorAll("span")).some((s) => (s.textContent || "").trim() === "Tambahkan grup")
+    );
+    if (loose.length) return loose.find(isElementVisible) || loose[0];
+    return null;
+  }
+
+  /** Scope yang berisi PREVIEW MEDIA aktif (bisa dialog lampiran terpisah). */
+  function findMediaScope() {
+    const candidates = new Set();
+    for (const v of document.querySelectorAll('video[src^="blob:"]')) {
+      const d = v.closest('div[role="dialog"]');
+      if (d) candidates.add(d);
+    }
+    for (const b of document.querySelectorAll('div[role="button"][aria-label="Hapus lampiran postingan"]')) {
+      const d = b.closest('div[role="dialog"]');
+      if (d) candidates.add(d);
+    }
+    for (const d of candidates) if (isElementVisible(d)) return d;
+    return null;
+  }
+
+  /** Hitung blob USER di scope (ikon static.xx.fbcdn.net TIDAK dihitung). */
+  function findMediaBlobs(scope) {
+    const live = scope && document.contains(scope) ? scope : findComposerDialog();
+    const roots = live ? [live, document] : [document];
+    const seen = new Set();
+    const result = { videoBlob: 0, imgBlob: 0 };
+    for (const root of roots) {
+      for (const v of root.querySelectorAll('video[src^="blob:"]')) {
+        if (seen.has(v)) continue;
+        seen.add(v);
+        if (v.readyState >= 2) result.videoBlob += 1;
+      }
+      for (const i of root.querySelectorAll('img[src^="blob:"]')) {
+        if (!seen.has(i)) {
+          seen.add(i);
+          result.imgBlob += 1;
+        }
+      }
+    }
+    return result;
+  }
+
   async function findEditor(timeout) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
@@ -121,6 +196,11 @@
     waitForUrlContains,
     waitForTextInTrigger,
     isEditableVisible,
+    isElementVisible,
+    waitFor,
+    findComposerDialog,
+    findMediaScope,
+    findMediaBlobs,
     findEditor,
     findPostButton,
     normalizeUrl
