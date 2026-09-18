@@ -40,5 +40,37 @@
     $("btnStop").disabled = !running;
   }
 
-  dashboard.ui = { $, escapeHtml, addLog, setStatus };
+  /* ---------------- AKUN FB MANUAL (textbox + centang tersimpan) ---------------- */
+
+  /** Tampilkan spinner kecil (sedang menulis ke storage). */
+  function showSaving() {
+    const tick = $("accountSavedTick");
+    tick.className = "saving-tick";
+    tick.textContent = "";
+    tick.title = "Menyimpan ke chrome storage…";
+  }
+
+  /** Centang hijau + animasi pop = data akun SUDAH tersimpan di storage
+      (dipicu oleh storage.onChanged, bukan asumsi UI). */
+  function showSaved() {
+    const tick = $("accountSavedTick");
+    tick.className = "saved-tick pop";
+    tick.textContent = "✓";
+    tick.title = "Tersimpan di chrome storage";
+  }
+
+  /** Ikon amber sekejap = penyimpanan gagal. */
+  function showSaveError() {
+    const tick = $("accountSavedTick");
+    tick.className = "error-tick";
+    tick.textContent = "!";
+    tick.title = "Gagal menyimpan";
+  }
+
+  /** Isi nilai textbox nama akun (dipakai saat init dari storage). */
+  function setAccountName(value) {
+    $("accountNameInput").value = value || "";
+  }
+
+  dashboard.ui = { $, escapeHtml, addLog, setStatus, setAccountName, showSaving, showSaved, showSaveError };
 })(globalThis);

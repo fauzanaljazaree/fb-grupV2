@@ -11,7 +11,7 @@
   const { MSG, STORAGE } = FBAP.config;
   const { setStrict } = FBAP.storage;
   const { State } = dashboard.state;
-  const { $, addLog, setStatus } = dashboard.ui;
+  const { $, addLog, setStatus, showSaving, showSaved, showSaveError } = dashboard.ui;
   const { renderMaterials } = dashboard.materials;
   const { loadGroups } = dashboard.groups;
 
@@ -36,6 +36,31 @@
     setStatus(!!res.running);
     return !!res.running;
   }
+
+  /* ---------------- NAMA AKUN FB MANUAL (textbox + centang tersimpan) ----------------
+     Ketik nama -> debounce 600ms -> tulis chrome.storage.local.
+     Centang hijau HANYA muncul setelah storage benar-benar berubah
+     (diverifikasi lewat storage.onChanged, bukan asumsi UI). */
+  let accountSaveTimer = null;
+
+  $("accountNameInput").addEventListener("input", () => {
+    clearTimeout(accountSaveTimer);
+    showSaving();
+    accountSaveTimer = setTimeout(async () => {
+      const name = $("accountNameInput").value.trim();
+      try {
+        if (!name) {
+          await setStrict({ [STORAGE.ACCOUNT_NAME]: { name: "", checkedAt: Date.now() } });
+        } else {
+          await setStrict({ [STORAGE.ACCOUNT_NAME]: { name, checkedAt: Date.now() } });
+        }
+        /* Centang tampil lewat storage.onChanged di bawah. */
+      } catch (e) {
+        showSaveError();
+        addLog(`Gagal menyimpan nama akun: ${e.message}`, "err");
+      }
+    }, 600);
+  });
 
   /* ---------------- MULAI POSTING ---------------- */
   $("btnStart").addEventListener("click", async () => {
@@ -137,6 +162,7 @@
       }
     }
     if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS]) loadGroups();
+    if (changes[STORAGE.ACCOUNT_NAME]) showSaved();
     /* Bus status scan (pola fb-grupV3): background menulis scanStatus,
        dashboard membaca lewat onChanged agar UI update tanpa reload. */
     const scanChange = changes[STORAGE.SCAN_STATUS];

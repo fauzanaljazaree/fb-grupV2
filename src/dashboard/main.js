@@ -16,7 +16,7 @@
   const { STORAGE } = FBAP.config;
   const { get } = FBAP.storage;
   const { State } = dashboard.state;
-  const { $, addLog } = dashboard.ui;
+  const { $, addLog, setAccountName, showSaved } = dashboard.ui;
   const { renderMaterials } = dashboard.materials;
   const { fillSettingsForm } = dashboard.settings;
   const { renderGroups } = dashboard.groups;
@@ -46,6 +46,10 @@
     }
     if (data[STORAGE.UI] && typeof data[STORAGE.UI].showFbTab === "boolean") {
       $("chkShowFb").checked = data[STORAGE.UI].showFbTab;
+    }
+    if (data[STORAGE.ACCOUNT_NAME] && data[STORAGE.ACCOUNT_NAME].name) {
+      setAccountName(data[STORAGE.ACCOUNT_NAME].name);
+      showSaved();
     }
     // Selalu isi form dengan default agar user bisa langsung lihat & ubah.
     fillSettingsForm(State.settings);

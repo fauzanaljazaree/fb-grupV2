@@ -42,7 +42,8 @@
     GROUPS: "groups",
     SELECTED_GROUPS: "selectedGroups",
     SCAN_STATUS: "scanStatus",
-    LAST_SCAN: "lastScan"
+    LAST_SCAN: "lastScan",
+    ACCOUNT_NAME: "accountName"
   };
 
   /* ---------------- TIPE PESAN ANTAR KONTEKS ----------------

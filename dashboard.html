@@ -113,6 +113,91 @@
         }
       }
 
+      /* Sisi kanan header: info akun + status */
+      .header-actions {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+      }
+      .account-pill {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        padding: 6px 12px;
+        border-radius: 999px;
+        font-size: 13px;
+        font-weight: 600;
+        background: var(--panel-2);
+        border: 1px solid var(--border);
+        max-width: 320px;
+      }
+      .account-pill input {
+        background: transparent;
+        border: none;
+        outline: none;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 600;
+        font-family: inherit;
+        width: 150px;
+      }
+      .account-pill input::placeholder {
+        color: var(--muted);
+        font-weight: 500;
+      }
+      .account-pill input:focus {
+        border-bottom: 1px solid var(--accent);
+      }
+      .account-pill .saved-tick {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--green);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 10px;
+        font-weight: 800;
+        flex: none;
+        opacity: 0.55;
+        transform: scale(1);
+        transition: opacity 0.4s ease;
+        cursor: default;
+        line-height: 1;
+      }
+      .account-pill .saved-tick.pop {
+        animation: tick-pop 0.45s ease;
+      }
+      .account-pill .saving-tick {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        border: 2px solid var(--border);
+        border-top-color: var(--accent);
+        flex: none;
+        animation: tick-spin 0.8s linear infinite;
+      }
+      .account-pill .error-tick {
+        width: 16px;
+        height: 16px;
+        border-radius: 50%;
+        background: var(--amber);
+        color: #fff;
+        display: grid;
+        place-items: center;
+        font-size: 10px;
+        font-weight: 800;
+        flex: none;
+        line-height: 1;
+      }
+      @keyframes tick-pop {
+        0% { transform: scale(0.3); opacity: 0; }
+        60% { transform: scale(1.25); opacity: 1; }
+        100% { transform: scale(1); opacity: 0.55; }
+      }
+      @keyframes tick-spin {
+        to { transform: rotate(360deg); }
+      }
       /* Layout grid */
       main.grid {
         display: grid;
@@ -436,9 +521,15 @@
           <div class="subtitle">Posting otomatis anti-bot stealth untuk grup Facebook</div>
         </div>
       </div>
-      <div class="status-pill" id="statusPill">
-        <span class="dot"></span>
-        <span id="statusText">Idle</span>
+      <div class="header-actions">
+        <div class="account-pill" title="Nama akun FB ini akan tersimpan di chrome storage">
+          <input id="accountNameInput" type="text" placeholder="Ketik nama akun FB…" maxlength="100" autocomplete="off" spellcheck="false" />
+          <span class="saved-tick" id="accountSavedTick" title="Tersimpan di chrome storage">✓</span>
+        </div>
+        <div class="status-pill" id="statusPill">
+          <span class="dot"></span>
+          <span id="statusText">Idle</span>
+        </div>
       </div>
     </header>
 
