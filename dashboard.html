@@ -191,12 +191,23 @@
         line-height: 1;
       }
       @keyframes tick-pop {
-        0% { transform: scale(0.3); opacity: 0; }
-        60% { transform: scale(1.25); opacity: 1; }
-        100% { transform: scale(1); opacity: 0.55; }
+        0% {
+          transform: scale(0.3);
+          opacity: 0;
+        }
+        60% {
+          transform: scale(1.25);
+          opacity: 1;
+        }
+        100% {
+          transform: scale(1);
+          opacity: 0.55;
+        }
       }
       @keyframes tick-spin {
-        to { transform: rotate(360deg); }
+        to {
+          transform: rotate(360deg);
+        }
       }
       /* Layout grid */
       main.grid {
@@ -547,7 +558,10 @@
             <input type="file" id="folderInput" webkitdirectory multiple />
           </div>
         </div>
-        <div class="hint">Kolom yang dibaca: <b>Nama_Akun</b> (paling kiri) &middot; <b>Caption</b> &amp; <b>Media_Name</b>. Hanya baris yang <b>Nama_Akun</b>-nya cocok dengan nama akun FB di header (kanan atas) yang dimuat. Caption mendukung <b>Spintax</b> <code>{varian1|varian2}</code>.</div>
+        <div class="hint">
+          Kolom yang dibaca: <b>Nama_Akun</b> (paling kiri) &middot; <b>Caption</b> &amp; <b>Media_Name</b>. Hanya baris yang <b>Nama_Akun</b>-nya cocok dengan nama akun FB di header (kanan atas) yang dimuat. Caption mendukung
+          <b>Spintax</b> <code>{varian1|varian2}</code>.
+        </div>
         <div class="tbl-wrap">
           <table>
             <thead>
@@ -614,8 +628,8 @@
         <div class="toolbar">
           <button class="btn" id="btnScrape">🔄 Ambil Data Grup FB</button>
           <button class="btn danger" id="btnDeleteGroups">🗑️ Hapus yang Dipilih</button>
-          <input type="search" id="searchGroup" class="grow" placeholder="Cari nama grup / URL..." />
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px"> <input type="checkbox" id="chkSelectAll" /> Pilih Semua </label>
+          <input type="search" id="searchGroup" class="grow" placeholder="Cari nama grup / URL..." />
           <span class="count-chip" id="groupCount">0 grup</span>
         </div>
         <p id="scanMessage" role="status" style="font-size: 12.5px; color: var(--muted); min-height: 16px; margin: -6px 0 0"></p>

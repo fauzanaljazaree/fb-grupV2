@@ -48,67 +48,187 @@
     return added;
   }
 
-  /* ---------- PENCARI SIDEBAR (pola fb-grupV3) ---------- */
+  /* ---------- AUTO-DETECT SCROLL CONTAINER (sidebar kiri) ----------
+     Tidak hardcoded class: gabungkan (1) selektor eksplisit navigation
+     ID/EN, (2) ancestor scrollable dari anchor /groups/, (3) sweep
+     koordinat kiri (rect.left < 35% viewport) dengan syarat
+     overflowY auto/scroll + scrollHeight > clientHeight + memuat
+     anchor /groups/. Pemenang = paling kiri + anchor terbanyak. */
 
-  /** Sidebar kiri = ancestor scrollable yang benar-benar mengandung
-      anchor /groups/. Bila tak ketemu, pakai role="navigation". */
-  function findSidebar() {
-    const anchor = document.querySelector('a[href*="/groups/"]');
-    if (anchor) {
-      let node = anchor.parentElement;
-      while (node && node !== document.body) {
-        const overflowy = getComputedStyle(node).overflowY;
-        const scrollable = node.scrollHeight > node.clientHeight + 8 &&
-          (overflowy === "auto" || overflowy === "scroll" || node.getAttribute("role") === "navigation");
-        if (scrollable) return node;
+  /** Ambil overflowY computed yang aman (gagal -> ""). */
+  function overflowOf(el) {
+    try { return (getComputedStyle(el).overflowY || "").toLowerCase(); }
+    catch (e) { return ""; }
+  }
+
+  /** Jumlah anchor /groups/ di dalam el (gagal -> 0). */
+  function countGroupAnchors(el) {
+    try { return el.querySelectorAll('a[href*="/groups/"]').length; }
+    catch (e) { return 0; }
+  }
+
+  /** Cek satu elemen layak jadi scroller sidebar kiri. */
+  function isLeftScroller(el, vw) {
+    if (!el || el === document.body || el === document.documentElement) return false;
+    const oy = overflowOf(el);
+    if (oy !== "auto" && oy !== "scroll") return false;
+    if (!(el.scrollHeight > el.clientHeight + 40)) return false;
+    let r = null;
+    try { r = el.getBoundingClientRect(); } catch (e) { return false; }
+    if (!r || r.left > vw * 0.35) return false;
+    if (countGroupAnchors(el) < 1) return false;
+    return true;
+  }
+
+  /** Kumpulkan semua kandidat scroller di sepertiga kiri viewport. */
+  function sweepLeftScrollers() {
+    const vw = window.innerWidth || 1280;
+    const out = [];
+    const seen = new Set();
+    const push = (el) => {
+      if (!el || seen.has(el)) return;
+      seen.add(el);
+      if (isLeftScroller(el, vw)) out.push(el);
+    };
+    /* Prioritas 1: navigation + aside eksplisit. */
+    try {
+      document.querySelectorAll('div[role="navigation"], aside').forEach(push);
+    } catch (e) { /* abaikan */ }
+    /* Prioritas 2: ancestor dari tiap anchor grup (naik hingga 8 hop). */
+    let anchors = [];
+    try { anchors = Array.from(document.querySelectorAll('a[href*="/groups/"]')).slice(0, 40); }
+    catch (e) { anchors = []; }
+    for (const a of anchors) {
+      let node = a.parentElement;
+      let hops = 0;
+      while (node && node !== document.body && hops < 8) {
+        push(node);
         node = node.parentElement;
+        hops++;
       }
     }
+    /* Prioritas 3: sweep semua div di koordinat kiri (dibatasi 400 node). */
+    try {
+      const divs = document.querySelectorAll("div");
+      const lim = Math.min(divs.length, 400);
+      for (let i = 0; i < lim; i++) push(divs[i]);
+    } catch (e) { /* abaikan */ }
+    return { list: out, vw };
+  }
+
+  /** Pilih pemenang: selektor eksplisit berisi grup didahulukan, lalu
+      skor = paling kiri + anchor terbanyak. */
+  function pickBestScroller(cands) {
+    const sels = [SIDEBAR_NAV, SIDEBAR_NAV_EN];
+    for (const sel of sels) {
+      let node = null;
+      try { node = document.querySelector(sel); } catch (e) { node = null; }
+      if (node && cands.includes(node)) return node;
+    }
+    let best = null;
+    let bestScore = -Infinity;
+    for (const el of cands) {
+      let r = null;
+      try { r = el.getBoundingClientRect(); } catch (e) { continue; }
+      const score = (0 - (r ? r.left : 0)) + countGroupAnchors(el) * 50;
+      if (score > bestScore) { bestScore = score; best = el; }
+    }
+    return best;
+  }
+
+  /** Deteksi container scroll sidebar kiri (auto-detect, bukan hardcoded).
+      Tetap diekspor dengan nama findSidebar agar wiring lama tetap jalan. */
+  function findSidebar() {
+    const found = sweepLeftScrollers();
+    const best = pickBestScroller(found.list);
+    if (best) return best;
+    /* Fallback terakhir: selektor navigasi walau belum scrollable penuh. */
     for (const sel of [SIDEBAR_NAV, SIDEBAR_NAV_EN]) {
-      const nav = document.querySelector(sel);
-      if (nav) return nav;
+      try {
+        const nav = document.querySelector(sel);
+        if (nav) return nav;
+      } catch (e) { /* abaikan */ }
     }
     return document.scrollingElement || document.documentElement;
   }
 
-  /** Mentok bawah: tunggu hingga DOM berhenti bertambah (FB memuat
-      item berikutnya secara lazy) sebelum menyerah. */
+  /** Scroll pelan satu langkah ala algoritma lama + event scroll sintetis
+      agar listener React Facebook merespons lazy-load. */
+  function scrollStep(sidebar) {
+    const step = Math.max(320, Math.round((sidebar.clientHeight || 600) * 0.75));
+    try { sidebar.scrollTo({ top: (sidebar.scrollTop || 0) + step, behavior: "auto" }); }
+    catch (e) { try { sidebar.scrollTop = (sidebar.scrollTop || 0) + step; } catch (err) {} }
+    try { sidebar.dispatchEvent(new Event("scroll", { bubbles: true })); }
+    catch (e) { /* abaikan */ }
+  }
+
+  /** Mentok bawah ala lama (tunggu idle), tapi tiap tunggu diselingi
+      scroll pelan + event scroll; berhenti bila scrollTop macet 3-5x
+      (retry limit = bottom reached). */
   async function waitForBottomIdle(sidebar, groups, deadline) {
     let stable = 0;
     let lastCount = groups.size;
-    while (stable < 3 && Date.now() < deadline) {
+    let stuck = 0;
+    let lastTop = -1;
+    while (stable < 3 && stuck < 5 && Date.now() < deadline) {
       collectGroups(groups, sidebar);
-      await sleep(700);
-      const grew = groups.size > lastCount ||
-        sidebar.scrollHeight > sidebar.clientHeight + sidebar.scrollTop + 8;
-      if (grew) stable = 0;
-      else stable++;
+      collectGroups(groups, document);
+      scrollStep(sidebar);
+      await sleep(1500);
+      collectGroups(groups, sidebar);
+      collectGroups(groups, document);
+      const grew = groups.size > lastCount;
+      const top = sidebar.scrollTop || 0;
+      const moved = top > lastTop + 2;
+      if (grew || moved) { stable = 0; if (!moved) stuck++; else stuck = 0; }
+      else { stable++; stuck++; }
       lastCount = groups.size;
+      lastTop = top;
     }
     collectGroups(groups, sidebar);
+    collectGroups(groups, document);
   }
 
   /* ---------- SCAN UTAMA (perintah SCAN_GROUPS) ---------- */
 
-  /** Scan sidebar /groups/feed/: tunggu render -> loop scroll (maks
-      LIMITS.SCAN_MAX_PASSES) -> kumpulkan -> balas ke background. */
+  /** Scan sidebar /groups/feed/ ala lama: tunggu render -> loop scroll
+      pelan bertahap (maks LIMITS.SCAN_MAX_PASSES) + event scroll sintetis
+      -> collect tiap langkah -> berhenti saat stabil/macet. */
   async function scanGroups() {
     const groups = new Map();
     await sleep(3000); /* beri waktu React FB merender sidebar */
     const sidebar = findSidebar();
     const deadline = Date.now() + LIMITS.SCAN_TAB_TIMEOUT_MS;
+    let stable = 0;
+    let lastCount = 0;
+    let stuck = 0;
+    let lastTop = -1;
     for (let pass = 0; pass < LIMITS.SCAN_MAX_PASSES; pass++) {
+      if (Date.now() > deadline) break;
       collectGroups(groups, sidebar);
-      const step = Math.max(320, Math.round(sidebar.clientHeight * 0.75));
-      sidebar.scrollTo({ top: sidebar.scrollTop + step, behavior: "auto" });
-      await sleep(randInt(650, 900));
+      collectGroups(groups, document);
+      if (groups.size > lastCount) { stable = 0; lastCount = groups.size; }
+      else stable++;
+      const top = sidebar.scrollTop || 0;
+      if (top <= lastTop + 2) stuck++;
+      else stuck = 0;
+      lastTop = top;
+      if ((stable >= 4 || stuck >= 5) && pass >= 3) break;
+      scrollStep(sidebar);
+      await sleep(1500);
+      collectGroups(groups, sidebar);
+      collectGroups(groups, document);
+      if (groups.size > lastCount) { stable = 0; lastCount = groups.size; }
+      else stable++;
       const reachedBottom =
-        sidebar.scrollTop + sidebar.clientHeight >= sidebar.scrollHeight - 8;
+        (sidebar.scrollTop || 0) + (sidebar.clientHeight || 0) >= (sidebar.scrollHeight || 0) - 8;
       if (reachedBottom) {
         await waitForBottomIdle(sidebar, groups, deadline);
         break;
       }
     }
+    collectGroups(groups, document);
+    try { sidebar.scrollTo({ top: 0, behavior: "auto" }); } catch (e) {}
     return {
       sourceUrl: location.href,
       scannedAt: new Date().toISOString(),
