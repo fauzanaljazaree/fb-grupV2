@@ -11,8 +11,7 @@
   const content = (FBAP.content = FBAP.content || {});
 
   /** Halaman sistem /groups/... yang bukan grup milik user. */
-  const SYSTEM_GROUP_URL =
-    /\/groups\/(feed|create|discover|events|joined|invited|joins|manage|member_requests|members|photos|videos|files|about|search|home|settings)/i;
+  const SYSTEM_GROUP_URL = /\/groups\/(feed|create|discover|events|joined|invited|joins|manage|member_requests|members|photos|videos|files|about|search|home|settings)/i;
 
   /** Menu "Grup" di sidebar kiri halaman utama Facebook. */
   const GRUP_LINK = 'a[role="link"][href*="/groups/?ref=bookmarks"]';
@@ -22,21 +21,20 @@
   const SIDEBAR_NAV_EN = 'div[role="navigation"][aria-label*="list"]';
 
   /** Input file pada dialog composer. */
-  const FILE_SELECTOR =
-    'input[type="file"][accept*="image"],input[type="file"][accept*="video"],input[type="file"]';
+  const FILE_SELECTOR = 'input[type="file"][accept*="image"],input[type="file"][accept*="video"],input[type="file"]';
 
   /** Tombol submit postingan (ID & EN). */
-  const POST_BUTTON_SELECTORS = [
-    'div[role="button"][aria-label*="Posting"]',
-    'div[role="button"][aria-label*="Post"]'
-  ];
+  const POST_BUTTON_SELECTORS = ['div[role="button"][aria-label*="Posting"]', 'div[role="button"][aria-label*="Post"]'];
 
   /* ---------------- SELEKTOR COMPOSER (workflow uji media+caption) ----------------
      HANYA aria-label/role/placeholder — JANGAN class dinamis FB (x9f619 dst). */
   const COMPOSER_TRIGGER_TEXT = "Tulis sesuatu...";
-  const CAPTION_EDITOR =
-    'div[contenteditable="true"][role="textbox"][aria-placeholder="Buat postingan publik..."]';
+  const CAPTION_EDITOR = 'div[contenteditable="true"][role="textbox"][aria-placeholder="Buat postingan publik..."]';
   const CAPTION_EDITOR_LOOSE = 'div[contenteditable="true"][role="textbox"]';
+  /* Jangkar stabil Lexical: TIDAK tergantung teks aria-placeholder yang bisa
+     berubah/hilang setelah media dilampirkan (FB mengganti placeholder saat
+     composer berisi lampiran). Dipakai sebagai fallback pencarian editor. */
+  const CAPTION_EDITOR_LEXICAL = 'div[contenteditable="true"][role="textbox"][data-lexical-editor="true"]';
   const FILE_INPUT = 'input[type="file"]';
   const COMPOSER_DIALOG_LABELED = 'div[role="dialog"][aria-label="Buat postingan"]';
 
@@ -50,7 +48,8 @@
     COMPOSER_TRIGGER_TEXT,
     CAPTION_EDITOR,
     CAPTION_EDITOR_LOOSE,
+    CAPTION_EDITOR_LEXICAL,
     FILE_INPUT,
-    COMPOSER_DIALOG_LABELED
+    COMPOSER_DIALOG_LABELED,
   };
 })(globalThis);

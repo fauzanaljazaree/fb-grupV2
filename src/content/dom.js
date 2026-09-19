@@ -10,7 +10,7 @@
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
   const { sleep } = FBAP.time;
-  const { POST_BUTTON_SELECTORS, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE, SYSTEM_GROUP_URL } = content.selectors;
+  const { POST_BUTTON_SELECTORS, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE, CAPTION_EDITOR_LEXICAL, SYSTEM_GROUP_URL } = content.selectors;
 
   /* ---------- PENUNGGU (WAIT) ---------- */
 
@@ -94,18 +94,16 @@
   /* ---------- PENCARI DIALOG COMPOSER & SCOPE MEDIA (workflow posting) ---------- */
 
   /** Dialog composer ASLI: dicari dari ISI (editor), bukan aria-label.
-      Temuan lapangan: composer asli = div[role="dialog"] TANPA label;
-      yang berlabel "Buat postingan" hanya kotak judul kosong.
+      Setelah media dilampirkan, aria-placeholder editor bisa berubah/hilang,
+      jadi filter menerima editor ketat ATAU Lexical (data-lexical-editor).
       Fallback loose: dialog berisi editor contenteditable + teks
       "Tambahkan grup" (aman untuk locale EN). */
   function findComposerDialog() {
     const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const withEditor = dialogs.filter((d) => d.querySelector(CAPTION_EDITOR));
+    const hasEditor = (d) => d.querySelector(CAPTION_EDITOR) || d.querySelector(CAPTION_EDITOR_LEXICAL);
+    const withEditor = dialogs.filter(hasEditor);
     if (withEditor.length) return withEditor.find(isElementVisible) || withEditor[0];
-    const loose = dialogs.filter((d) =>
-      d.querySelector(CAPTION_EDITOR_LOOSE) &&
-      Array.from(d.querySelectorAll("span")).some((s) => (s.textContent || "").trim() === "Tambahkan grup")
-    );
+    const loose = dialogs.filter((d) => d.querySelector(CAPTION_EDITOR_LOOSE) && Array.from(d.querySelectorAll("span")).some((s) => (s.textContent || "").trim() === "Tambahkan grup"));
     if (loose.length) return loose.find(isElementVisible) || loose[0];
     return null;
   }
@@ -147,12 +145,24 @@
     return result;
   }
 
+  /** Editor harus berada DI DALAM dialog composer (bukan editor komentar
+      di feed — keduanya sama-sama contenteditable + data-lexical-editor). */
+  function isInComposerDialog(el) {
+    if (!el || typeof el.closest !== "function") return false;
+    const d = el.closest('div[role="dialog"]');
+    return !!(d && isElementVisible(d) && d.querySelector('div[contenteditable="true"]'));
+  }
+
+  /** Cari editor caption composer. WAJIB di dalam dialog composer supaya
+      tidak salah menangkap kolom komentar. Urutan: placeholder ketat ->
+      jangkar Lexical, keduanya harus lolos isInComposerDialog. */
   async function findEditor(timeout) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
       const editable = document.querySelectorAll('div[contenteditable="true"]');
       for (const el of editable) {
         if (!isEditableVisible(el)) continue;
+        if (!isInComposerDialog(el)) continue;
         const fp = el.getAttribute("aria-placeholder") || "";
         if (fp && /(buat postingan|create|write|bagikan)/i.test(fp)) return el;
         if (el.hasAttribute("data-lexical-editor")) return el;
@@ -171,8 +181,7 @@
         const label = (n.getAttribute && (n.getAttribute("aria-label") || "")) || "";
         const t = label || (n.textContent || "").trim();
         if (/(posting|kirim|post|bagikan|share)/i.test(t)) {
-          if (/(media|foto|video|story|tag|feeling|aktivitas)/i.test(t) &&
-              !/(post now|kirim posting|postingan|post aktivitas)/i.test(t)) continue;
+          if (/(media|foto|video|story|tag|feeling|aktivitas)/i.test(t) && !/(post now|kirim posting|postingan|post aktivitas)/i.test(t)) continue;
           return n;
         }
       }
@@ -201,8 +210,13 @@
       } else {
         return "";
       }
-    } catch (e) { return ""; }
-    const m = path.split("?")[0].split("#")[0].match(/^\/groups\/([A-Za-z0-9._-]+)\/?$/);
+    } catch (e) {
+      return "";
+    }
+    const m = path
+      .split("?")[0]
+      .split("#")[0]
+      .match(/^\/groups\/([A-Za-z0-9._-]+)\/?$/);
     if (!m) {
       /* Ada ekor path (/groups/{id}/members): ambil segmen id-nya saja. */
       const m2 = path.match(/^\/groups\/([A-Za-z0-9._-]+)\//);
@@ -222,12 +236,13 @@
     waitForTextInTrigger,
     isEditableVisible,
     isElementVisible,
+    isInComposerDialog,
     waitFor,
     findComposerDialog,
     findMediaScope,
     findMediaBlobs,
     findEditor,
     findPostButton,
-    normalizeUrl
+    normalizeUrl,
   };
 })(globalThis);

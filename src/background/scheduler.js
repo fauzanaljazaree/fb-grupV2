@@ -25,8 +25,7 @@
   const { run, FB_HOME } = background.state;
   const { keepAwakeOn, keepAwakeOff } = background.power;
   const { log, setRunning, broadcastQueueInfo } = background.messaging;
-  const { ensurePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusTab, focusDashboard } =
-    background.tabs;
+  const { ensurePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusTab, focusDashboard } = background.tabs;
 
   const ALARM_NAME = "post-tick";
 
@@ -67,12 +66,15 @@
       [STORAGE.MATERIALS]: run.materials,
       [STORAGE.SETTINGS]: run.settings,
       [STORAGE.GROUPS_SNAPSHOT]: run.groups,
-      [STORAGE.GROUP_RESULTS]: {}
+      [STORAGE.GROUP_RESULTS]: {},
     });
 
     keepAwakeOn();
     await setRunning(true);
-    await log(`Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} posting. Mode: 1 materi ke semua grup (klik natural sidebar tiap grup). Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`, "info");
+    await log(
+      `Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} posting. Mode: 1 materi ke semua grup (klik natural sidebar tiap grup). Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`,
+      "info",
+    );
     await broadcastQueueInfo();
     /* Posting pertama LANGSUNG (tanpa alarm/jeda) — jeda acak hanya untuk
        antar posting berikutnya (diatur scheduleNext di processNextPost). */
@@ -124,7 +126,7 @@
     run.groupName = null;
     await storageSet({ [STORAGE.QUEUE]: [], [STORAGE.CURSOR]: 0 });
     await setRunning(false);
-    await log("Status \"Berjalan\" warisan sesi lama dibersihkan (tidak ada alarm aktif) — siap memulai posting baru.", "warn");
+    await log('Status "Berjalan" warisan sesi lama dibersihkan (tidak ada alarm aktif) — siap memulai posting baru.', "warn");
     return { ok: true, running: false, recovered: true };
   }
 
@@ -132,10 +134,7 @@
   function scheduleNext(delayMs) {
     if (!run.running) return;
     const now = Date.now();
-    const when = Math.max(
-      now + Math.min(delayMs, LIMITS.MAX_ALARM_DELAY_MS),
-      now + LIMITS.MIN_ALARM_DELAY_MS
-    );
+    const when = Math.max(now + Math.min(delayMs, LIMITS.MAX_ALARM_DELAY_MS), now + LIMITS.MIN_ALARM_DELAY_MS);
     chrome.alarms.create(ALARM_NAME, { when });
     const sec = Math.round((when - now) / 1000);
     log(`Jeda acak: aksi berikutnya dalam \u00b1${sec}s.`, "info");
@@ -157,25 +156,17 @@
     }
     run.busy = true;
     try {
-      const st = await storageGet([
-        STORAGE.QUEUE,
-        STORAGE.CURSOR,
-        STORAGE.SETTINGS,
-        STORAGE.MATERIALS,
-        STORAGE.STATS,
-        STORAGE.GROUPS_SNAPSHOT,
-        STORAGE.GROUP_RESULTS
-      ]);
+      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS]);
       /* FALLBACK: bila storage kosong (mis. alarm fire sebelum persist),
          pakai state in-memory jangan overwrite dengan nilai kosong. */
-      run.queue = (st[STORAGE.QUEUE] && st[STORAGE.QUEUE].length) ? st[STORAGE.QUEUE] : (run.queue || []);
-      run.cursor = (st[STORAGE.CURSOR] != null) ? st[STORAGE.CURSOR] : run.cursor;
+      run.queue = st[STORAGE.QUEUE] && st[STORAGE.QUEUE].length ? st[STORAGE.QUEUE] : run.queue || [];
+      run.cursor = st[STORAGE.CURSOR] != null ? st[STORAGE.CURSOR] : run.cursor;
       run.settings = {
         ...DEFAULTS.settings,
-        ...((st[STORAGE.SETTINGS] && Object.keys(st[STORAGE.SETTINGS]).length) ? st[STORAGE.SETTINGS] : run.settings)
+        ...(st[STORAGE.SETTINGS] && Object.keys(st[STORAGE.SETTINGS]).length ? st[STORAGE.SETTINGS] : run.settings),
       };
-      run.materials = (st[STORAGE.MATERIALS] && st[STORAGE.MATERIALS].length) ? st[STORAGE.MATERIALS] : (run.materials || []);
-      run.groups = (st[STORAGE.GROUPS_SNAPSHOT] && st[STORAGE.GROUPS_SNAPSHOT].length) ? st[STORAGE.GROUPS_SNAPSHOT] : (run.groups || []);
+      run.materials = st[STORAGE.MATERIALS] && st[STORAGE.MATERIALS].length ? st[STORAGE.MATERIALS] : run.materials || [];
+      run.groups = st[STORAGE.GROUPS_SNAPSHOT] && st[STORAGE.GROUPS_SNAPSHOT].length ? st[STORAGE.GROUPS_SNAPSHOT] : run.groups || [];
       run.results = st[STORAGE.GROUP_RESULTS] || run.results || {};
 
       if (run.cursor >= run.queue.length) {
@@ -195,8 +186,8 @@
          1 materi ke semua grup (klik natural sidebar tiap grup),
          memakai NAV_HOME_TO_COMPOSER + targetGroupUrl. */
       const item = run.queue[run.cursor] || {};
-      const mi = (typeof item === "object" && item.mi != null) ? item.mi : run.cursor;
-      const gi = (typeof item === "object" && item.gi != null) ? item.gi : 0;
+      const mi = typeof item === "object" && item.mi != null ? item.mi : run.cursor;
+      const gi = typeof item === "object" && item.gi != null ? item.gi : 0;
       const material = run.materials[mi] || run.materials[0];
       const group = run.groups[gi] || null;
       if (!material) throw new Error("Materi tidak ditemukan di antrean.");
@@ -220,28 +211,37 @@
                     beri user MANUAL_POST_WINDOW_MS untuk klik Posting
                     sendiri; setelah itu alur lanjut tanpa memedulikan. */
       const autoPost = run.settings.autoPost !== false;
-      await log(`Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length}) — mode: ${autoPost ? "autoposting (klik Posting otomatis)" : "manual (jendela " + (LIMITS.MANUAL_POST_WINDOW_MS / 1000) + "s untuk klik Posting sendiri)"}`, "info");
+      await log(
+        `Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length}) — mode: ${autoPost ? "autoposting (klik Posting otomatis)" : "manual (jendela " + LIMITS.MANUAL_POST_WINDOW_MS / 1000 + "s untuk klik Posting sendiri)"}`,
+        "info",
+      );
 
       const tab = await ensurePostTab(run.groupUrl);
+      /* Kontrak: ensurePostTab TIDAK me-reload tab bila sudah di grup target
+         (sameGroupUrl) — reload menghancurkan composer modal yang dibuka
+         NAV_HOME_TO_COMPOSER. waitTabLoaded di sini hanya jaring pengaman
+         (no-op bila tab sudah complete). */
       await waitTabLoaded(tab.id, 45000);
       await ensureContentScript(tab.id);
-      const res = await sendToContent(tab.id, {
-        type: MSG.EXECUTE_POST,
-        autoPost,
-        caption: material.caption || "",
-        mediaDataUrl: material.mediaDataUrl || null,
-        mediaMime: material.mediaMime || "application/octet-stream",
-        mediaName: material.mediaName || ""
-      }, 150000);
+      const res = await sendToContent(
+        tab.id,
+        {
+          type: MSG.EXECUTE_POST,
+          autoPost,
+          caption: material.caption || "",
+          mediaDataUrl: material.mediaDataUrl || null,
+          mediaMime: material.mediaMime || "application/octet-stream",
+          mediaName: material.mediaName || "",
+        },
+        150000,
+      );
 
       if (res && res.ok) {
         const statsNow = (await storageGet([STORAGE.STATS]))[STORAGE.STATS] || {};
         statsNow[today] = (statsNow[today] || 0) + 1;
         run.results[group.url] = { ok: true, mi, at: Date.now() };
         await storageSet({ [STORAGE.STATS]: statsNow, [STORAGE.GROUP_RESULTS]: run.results });
-        await log(autoPost
-          ? `Sukses materi #${mi + 1} di ${run.groupName}`
-          : `Materi #${mi + 1} siap di ${run.groupName}: media+caption terisi, jendela manual habis — lanjut berikutnya (hasil klik Posting user tidak diperiksa).`, "ok");
+        await log(autoPost ? `Sukses materi #${mi + 1} di ${run.groupName}` : `Materi #${mi + 1} siap di ${run.groupName}: media+caption terisi, jendela manual habis — lanjut berikutnya (hasil klik Posting user tidak diperiksa).`, "ok");
         chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: true, mi }).catch(() => {});
       } else {
         const msg = (res && res.error) || "tidak ada respons";
@@ -278,8 +278,8 @@
          lanjut grup berikutnya (jangan berhenti total). */
       try {
         const item = run.queue[run.cursor] || {};
-        const mi = (typeof item === "object" && item.mi != null) ? item.mi : run.cursor;
-        const gi = (typeof item === "object" && item.gi != null) ? item.gi : 0;
+        const mi = typeof item === "object" && item.mi != null ? item.mi : run.cursor;
+        const gi = typeof item === "object" && item.gi != null ? item.gi : 0;
         const group = (run.groups && run.groups[gi]) || null;
         if (group && group.url) {
           run.results[group.url] = { ok: false, mi, at: Date.now(), error: (err && err.message) || String(err) };
@@ -292,7 +292,9 @@
         run.cursor++;
         await storageSet({ [STORAGE.CURSOR]: run.cursor });
         await broadcastQueueInfo();
-      } catch (e) { /* abaikan */ }
+      } catch (e) {
+        /* abaikan */
+      }
       if (run.running) scheduleNext(randInt(run.settings.minDelay, run.settings.maxDelay) * 1000);
     } finally {
       run.busy = false;
@@ -329,4 +331,3 @@
 
   background.scheduler = { ALARM_NAME, startPosting, stopPosting, scheduleNext, processNextPost, getStatus, openComposerFromHome };
 })(globalThis);
-

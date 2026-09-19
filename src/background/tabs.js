@@ -15,11 +15,15 @@
 
   /* ---------------- FOKUS TAB ---------------- */
   async function focusTab(tabId) {
-    try { if (tabId) await chrome.tabs.update(tabId, { active: true }); } catch (e) { }
+    try {
+      if (tabId) await chrome.tabs.update(tabId, { active: true });
+    } catch (e) {}
   }
 
   async function focusDashboard() {
-    try { if (run.dashboardTabId) await chrome.tabs.update(run.dashboardTabId, { active: true }); } catch (e) { }
+    try {
+      if (run.dashboardTabId) await chrome.tabs.update(run.dashboardTabId, { active: true });
+    } catch (e) {}
   }
 
   /* ---------------- TAB DASHBOARD ---------------- */
@@ -27,7 +31,9 @@
     const tabs = await chrome.tabs.query({});
     const existing = tabs.find((t) => t.url && t.url.startsWith(DASH_URL));
     if (existing) {
-      try { await chrome.tabs.remove(existing.id); } catch (e) { }
+      try {
+        await chrome.tabs.remove(existing.id);
+      } catch (e) {}
     }
     await chrome.tabs.create({ url: DASH_URL, pinned: true, active: true });
   }
@@ -42,10 +48,13 @@
            membawa field `url` (url hanya ada saat URL berubah). Jadi jangan
            andalkan info.url — verifikasi URL via chrome.tabs.get. */
         if (info.status !== "complete") return;
-        chrome.tabs.get(tabId).then((t) => {
-          if (done) return;
-          if (t && t.url && t.url.includes("facebook.com")) finish(true);
-        }).catch(() => {});
+        chrome.tabs
+          .get(tabId)
+          .then((t) => {
+            if (done) return;
+            if (t && t.url && t.url.includes("facebook.com")) finish(true);
+          })
+          .catch(() => {});
       };
 
       function finish(ok) {
@@ -64,18 +73,24 @@
          tidur / navigasi sama-origin SPA). Cek kondisi tab tiap 500ms. */
       const pollTimer = setInterval(() => {
         if (done) return;
-        chrome.tabs.get(tabId).then((t) => {
-          if (done) return;
-          if (t && t.status === "complete" && t.url && t.url.includes("facebook.com")) finish(true);
-        }).catch(() => finish(false));
+        chrome.tabs
+          .get(tabId)
+          .then((t) => {
+            if (done) return;
+            if (t && t.status === "complete" && t.url && t.url.includes("facebook.com")) finish(true);
+          })
+          .catch(() => finish(false));
       }, 500);
 
       chrome.tabs.onUpdated.addListener(listener);
 
       /* Cek awal: bila tab sudah complete, selesai tanpa menunggu event. */
-      chrome.tabs.get(tabId).then((t) => {
-        if (!done && t && t.status === "complete" && t.url && t.url.includes("facebook.com")) finish(true);
-      }).catch(() => {});
+      chrome.tabs
+        .get(tabId)
+        .then((t) => {
+          if (!done && t && t.status === "complete" && t.url && t.url.includes("facebook.com")) finish(true);
+        })
+        .catch(() => {});
     });
   }
 
@@ -114,19 +129,65 @@
     });
   }
 
+  /** Bandingkan dua URL ke format kanonis /groups/{id} (slug ATAU numerik).
+      Strip query/hash/trailing slash; hanya hostname facebook.com.
+      Kembalikan false bila salah satu bukan URL grup valid — dalam hal
+      keraguan, pemanggil harus memilih perilaku lama (tetap navigasi). */
+  function sameGroupUrl(a, b) {
+    const canon = (u) => {
+      const raw = (u || "").trim();
+      if (!raw) return "";
+      let path = "";
+      try {
+        if (/^https?:\/\//i.test(raw)) {
+          const p = new URL(raw);
+          if (!/(^|\.)facebook\.com$/i.test(p.hostname)) return "";
+          path = p.pathname || "";
+        } else if (raw.startsWith("/")) {
+          path = raw;
+        } else return "";
+      } catch (e) {
+        return "";
+      }
+      const m = path
+        .split("?")[0]
+        .split("#")[0]
+        .match(/^\/groups\/([A-Za-z0-9._-]+)\/?$/);
+      if (!m) {
+        const m2 = path.match(/^\/groups\/([A-Za-z0-9._-]+)\//);
+        return m2 ? m2[1] : "";
+      }
+      return m[1];
+    };
+    const ca = canon(a);
+    const cb = canon(b);
+    return !!ca && !!cb && ca === cb;
+  }
+
   /** Pakai ulang tab FB yang ada, atau buat baru (tab biasa, bukan pinned).
       `pinned: false` saat update juga melepas pin pada tab lama yang masih
-      pinned dari versi sebelumnya (migrasi otomatis). */
+      pinned dari versi sebelumnya (migrasi otomatis).
+      PENTING: bila tab sudah berada di grup target (URL kanonis sama),
+      JANGAN navigasi ulang — chrome.tabs.update({url}) me-reload tab dan
+      menghancurkan composer modal yang sedang terbuka. Cukup lepas pin,
+      fokus bila perlu, lalu pakai tabnya apa adanya. */
   async function ensurePostTab(url) {
     const active = !!run.showFbTab;
     if (run.postTabId) {
       try {
-        await chrome.tabs.get(run.postTabId);
+        const cur = await chrome.tabs.get(run.postTabId);
+        if (sameGroupUrl(cur && cur.url, url)) {
+          await chrome.tabs.update(run.postTabId, { active, pinned: false });
+          if (active) await focusTab(run.postTabId);
+          return await chrome.tabs.get(run.postTabId);
+        }
         await chrome.tabs.update(run.postTabId, { url, active, pinned: false });
         if (active) await focusTab(run.postTabId);
         /* Ambil snapshot TERBARU setelah update, bukan objek lama. */
         return await chrome.tabs.get(run.postTabId);
-      } catch (e) { run.postTabId = null; }
+      } catch (e) {
+        run.postTabId = null;
+      }
     }
     const tab = await chrome.tabs.create({ url, active, pinned: false });
     run.postTabId = tab.id;
@@ -164,6 +225,7 @@
     ensureContentScript,
     sendToContent,
     ensurePostTab,
-    showFbTab
+    sameGroupUrl,
+    showFbTab,
   };
 })(globalThis);

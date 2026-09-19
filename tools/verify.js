@@ -79,7 +79,7 @@ function collectDeclaredNames(src) {
   return [
     ...[...src.matchAll(/^\s*(?:async\s+)?function\s+([A-Za-z0-9_$]+)/gm)].map((m) => m[1]),
     ...[...src.matchAll(/^\s*(?:const|let|var)\s+([A-Za-z0-9_$]+)/gm)].map((m) => m[1]),
-    ...[...src.matchAll(/^\s*(?:const|let|var)\s*\{([^}]*)\}/gm)].flatMap((m) => destructuredNames(m[1]))
+    ...[...src.matchAll(/^\s*(?:const|let|var)\s*\{([^}]*)\}/gm)].flatMap((m) => destructuredNames(m[1])),
   ];
 }
 /** Deklarasi level teratas saja (file lama tidak dibungkus IIFE). */
@@ -87,7 +87,7 @@ function collectTopLevelNames(src) {
   return [
     ...[...src.matchAll(/^(?:async\s+)?function\s+([A-Za-z0-9_$]+)/gm)].map((m) => m[1]),
     ...[...src.matchAll(/^(?:const|let|var)\s+([A-Za-z0-9_$]+)/gm)].map((m) => m[1]),
-    ...[...src.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}/gm)].flatMap((m) => destructuredNames(m[1]))
+    ...[...src.matchAll(/^(?:const|let|var)\s*\{([^}]*)\}/gm)].flatMap((m) => destructuredNames(m[1])),
   ];
 }
 function topLevelNames(rel, onlyTopLevel) {
@@ -135,11 +135,7 @@ function checkManifestSync() {
   const inManifest = (manifest.content_scripts && manifest.content_scripts[0].js) || [];
   const inConfig = extractContentFiles();
   const same = inManifest.length === inConfig.length && inManifest.every((f, i) => f === inConfig[i]);
-  report(
-    same,
-    "manifest.content_scripts[0].js == FBAP.config.CONTENT_SCRIPT_FILES",
-    same ? "" : `manifest=[${inManifest}] config=[${inConfig}]`
-  );
+  report(same, "manifest.content_scripts[0].js == FBAP.config.CONTENT_SCRIPT_FILES", same ? "" : `manifest=[${inManifest}] config=[${inConfig}]`);
   const bg = manifest.background && manifest.background.service_worker;
   const paths = [...inManifest, bg, "dashboard.html"].filter(Boolean);
   const missing = paths.filter((p) => !fs.existsSync(path.join(ROOT, p)));
@@ -178,7 +174,7 @@ function makeChromeStub(store, alarms) {
         return Promise.resolve({ ok: true });
       },
       onMessage: fakeEvent(),
-      onInstalled: fakeEvent()
+      onInstalled: fakeEvent(),
     },
     storage: {
       local: {
@@ -189,9 +185,9 @@ function makeChromeStub(store, alarms) {
         },
         remove: (keys, cb) => {
           if (cb) cb();
-        }
+        },
       },
-      onChanged: fakeEvent()
+      onChanged: fakeEvent(),
     },
     tabs: {
       get: async () => ({ id: 1, status: "complete", url: "https://www.facebook.com/groups/1" }),
@@ -200,23 +196,31 @@ function makeChromeStub(store, alarms) {
       update: async () => ({}),
       remove: async () => {},
       sendMessage: (id, msg, cb) => cb && cb({ ok: true }),
-      onUpdated: fakeEvent()
+      onUpdated: fakeEvent(),
     },
     /* Alarm disimpan di map agar pemeriksaan status bisa membedakan sesi yang
        masih terjadwal (alarm ada) dari sesi basi (alarm hilang). */
     alarms: {
-      create: (name, info) => { alarms[name] = Object.assign({ name }, info); },
-      clear: (name) => { delete alarms[name]; return Promise.resolve(true); },
+      create: (name, info) => {
+        alarms[name] = Object.assign({ name }, info);
+      },
+      clear: (name) => {
+        delete alarms[name];
+        return Promise.resolve(true);
+      },
       get: (name, cb) => {
         const a = alarms[name];
-        if (typeof cb === "function") { cb(a); return; }
+        if (typeof cb === "function") {
+          cb(a);
+          return;
+        }
         return Promise.resolve(a);
       },
-      onAlarm: fakeEvent()
+      onAlarm: fakeEvent(),
     },
     action: { onClicked: fakeEvent() },
     power: { requestKeepAwake: noop, releaseKeepAwake: noop },
-    scripting: { executeScript: async () => [{}] }
+    scripting: { executeScript: async () => [{}] },
   };
 }
 function makeDomStub() {
@@ -246,7 +250,7 @@ function makeDomStub() {
     scrollIntoView: noop,
     querySelector: () => null,
     querySelectorAll: () => [],
-    getBoundingClientRect: () => ({ width: 0, height: 0, top: 0, left: 0 })
+    getBoundingClientRect: () => ({ width: 0, height: 0, top: 0, left: 0 }),
   });
   return {
     location: { href: "https://www.facebook.com/groups/1" },
@@ -264,8 +268,8 @@ function makeDomStub() {
       },
       createElement: () => element(),
       execCommand: () => true,
-      addEventListener: noop
-    }
+      addEventListener: noop,
+    },
   };
 }
 function makeSandbox(chrome, extra) {
@@ -278,9 +282,9 @@ function makeSandbox(chrome, extra) {
       clearInterval,
       addEventListener: noop,
       removeEventListener: noop,
-      chrome
+      chrome,
     },
-    extra || {}
+    extra || {},
   );
   sandbox.window = sandbox;
   sandbox.self = sandbox;
@@ -305,7 +309,7 @@ function checkLoadBackground() {
   const missing = need.filter((k) => !bg || !bg[k]);
   report(missing.length === 0, "Modul background terdaftar (importScripts)", missing.join(", "));
   const api = ["startPosting", "stopPosting", "processNextPost", "sendToContent", "ensurePostTab", "getStatus"];
-  const missingApi = api.filter((fn) => !bg || !bg.scheduler[fn] && !bg.tabs[fn]);
+  const missingApi = api.filter((fn) => !bg || (!bg.scheduler[fn] && !bg.tabs[fn]));
   report(missingApi.length === 0, "API background lengkap", missingApi.join(", "));
   const scanApi = ["runScan", "isScanActive"].filter((fn) => !bg || !bg.scan || typeof bg.scan[fn] !== "function");
   report(scanApi.length === 0, "API background.scan lengkap (runScan, isScanActive)", scanApi.join(", "));
@@ -313,9 +317,7 @@ function checkLoadBackground() {
 function checkLoadContent() {
   const ctx = loadScripts(makeSandbox(makeChromeStub({}), makeDomStub()), extractContentFiles(), "");
   const ct = ctx.FBAP && ctx.FBAP.content;
-  const missing = ["selectors", "dom", "stealth", "media", "navigation", "scraper", "posting"].filter(
-    (k) => !ct || !ct[k]
-  );
+  const missing = ["selectors", "dom", "stealth", "media", "navigation", "scraper", "posting"].filter((k) => !ct || !ct[k]);
   report(missing.length === 0, "Modul content terdaftar", missing.join(", "));
   const api = ["postToGroup", "navHomeToGroup", "scrapeGroups", "typeLikeHuman", "attachMedia"];
   const flat = api.filter((fn) => !Object.values(ct || {}).some((mod) => mod && typeof mod[fn] === "function"));
@@ -331,7 +333,7 @@ const INTENTIONAL_REMOVALS = ["spin", "storageRemove", "EDITOR_SELECTOR", "randF
 const RENAMES = {
   gaussRandom: "FBAP.random.gauss",
   parseSpintax: "FBAP.spintax.parse",
-  DASHBOARD: "FBAP.config.PAGES.DASHBOARD"
+  DASHBOARD: "FBAP.config.PAGES.DASHBOARD",
 };
 
 function collectMessageLiterals(files) {
@@ -361,9 +363,7 @@ function checkParity() {
   }
   const oldNames = new Set(available.flatMap((f) => topLevelNames(f, true)));
   const newNames = new Set(listJsFiles(path.join(ROOT, "src")).flatMap((f) => topLevelNames(f, false)));
-  const lost = [...oldNames].filter(
-    (n) => !newNames.has(n) && !INTENTIONAL_REMOVALS.includes(n) && !RENAMES[n]
-  );
+  const lost = [...oldNames].filter((n) => !newNames.has(n) && !INTENTIONAL_REMOVALS.includes(n) && !RENAMES[n]);
   report(lost.length === 0, "Semua fungsi/konstanta lama pindah ke modul baru", lost.join(", "));
 
   const oldMsg = collectMessageLiterals(available);
@@ -399,11 +399,7 @@ function checkStatusRecovery() {
   /* b) Sesi lama yang alarm langkah berikutnya masih terjadwal -> JANGAN reset. */
   const liveStore = { [STORAGE.STATUS]: { running: true } };
   const alarmName = staleScheduler.ALARM_NAME;
-  const liveCtx = loadScripts(
-    makeSandbox(makeChromeStub(liveStore, { [alarmName]: { name: alarmName } })),
-    bgFiles,
-    "src/background"
-  );
+  const liveCtx = loadScripts(makeSandbox(makeChromeStub(liveStore, { [alarmName]: { name: alarmName } })), bgFiles, "src/background");
   const liveScheduler = liveCtx.FBAP.background.scheduler;
   const liveRun = liveCtx.FBAP.background.state.run;
 
@@ -411,7 +407,7 @@ function checkStatusRecovery() {
   const dom = makeDomStub();
   const dashStore = {
     [STORAGE.STATUS]: { running: true },
-    [STORAGE.MATERIALS]: [{ caption: "Halo", mediaName: "", available: false }]
+    [STORAGE.MATERIALS]: [{ caption: "Halo", mediaName: "", available: false }],
   };
   const dashChrome = makeChromeStub(dashStore);
   dashChrome.runtime.sendMessage = (msg, cb) => {
@@ -419,27 +415,17 @@ function checkStatusRecovery() {
     if (typeof cb === "function") cb(res);
     return Promise.resolve(res);
   };
-  loadScripts(makeSandbox(dashChrome, dom), dashboardScriptFiles().filter((s) => s.startsWith("src/")), "");
+  loadScripts(
+    makeSandbox(dashChrome, dom),
+    dashboardScriptFiles().filter((s) => s.startsWith("src/")),
+    "",
+  );
 
   return Promise.all([staleScheduler.getStatus(), liveScheduler.getStatus()])
     .then(([stale, live]) => {
-      report(
-        stale.ok && stale.running === false && stale.recovered === true,
-        "Status basi tanpa alarm direset ke Idle",
-        JSON.stringify(stale)
-      );
-      report(
-        staleStore[STORAGE.STATUS].running === false &&
-          staleStore[STORAGE.QUEUE].length === 0 &&
-          staleStore[STORAGE.CURSOR] === 0,
-        "status/queue/cursor basi dibersihkan dari storage",
-        JSON.stringify(staleStore)
-      );
-      report(
-        live.ok && live.running === true && liveRun.running === true && liveStore[STORAGE.STATUS].running === true,
-        "Sesi yang alarmnya masih terjadwal dipulihkan, bukan direset",
-        JSON.stringify(live)
-      );
+      report(stale.ok && stale.running === false && stale.recovered === true, "Status basi tanpa alarm direset ke Idle", JSON.stringify(stale));
+      report(staleStore[STORAGE.STATUS].running === false && staleStore[STORAGE.QUEUE].length === 0 && staleStore[STORAGE.CURSOR] === 0, "status/queue/cursor basi dibersihkan dari storage", JSON.stringify(staleStore));
+      report(live.ok && live.running === true && liveRun.running === true && liveStore[STORAGE.STATUS].running === true, "Sesi yang alarmnya masih terjadwal dipulihkan, bukan direset", JSON.stringify(live));
       return new Promise((resolve) => setTimeout(resolve, 30));
     })
     .then(() => {
@@ -466,6 +452,8 @@ function makeFakeFbDom() {
     scrollHeight: 400,
     clientHeight: 300,
     offsetParent: {},
+    offsetWidth: 100,
+    offsetHeight: 20,
     isConnected: true,
     order: 0,
     scrollIntoView: noop,
@@ -476,11 +464,12 @@ function makeFakeFbDom() {
     querySelector: () => null,
     querySelectorAll: () => [],
     getBoundingClientRect: () => size(0, 0),
+    getClientRects: () => [{}],
     /* Urutan dokumen: 4 = DOCUMENT_POSITION_FOLLOWING, cukup untuk kode produksi
        yang hanya menguji bit tersebut. */
     compareDocumentPosition(other) {
       return other && other.order > this.order ? 4 : 0;
-    }
+    },
   });
 
   /* Sidebar homepage: menu "Grup" (GRUP_LINK). Klik memindahkan URL seperti SPA. */
@@ -490,7 +479,7 @@ function makeFakeFbDom() {
     click: () => {
       state.clicked.push("menu-grup");
       state.href = "https://www.facebook.com/groups/feed/";
-    }
+    },
   });
 
   /* Link grup pertama di sidebar daftar grup.
@@ -503,7 +492,7 @@ function makeFakeFbDom() {
     click: () => {
       state.clicked.push("pilih-grup");
       state.href = "https://www.facebook.com/groups/123456789/";
-    }
+    },
   });
 
   /* Heading "Grup yang Anda bergabung..." — cabang ancestor-nya SENGAJA
@@ -512,14 +501,14 @@ function makeFakeFbDom() {
      lewat urutan dokumen (firstGroupAfter), bukan lewat ancestor. */
   const heading = Object.assign(genericEl("Grup yang Anda bergabung di dalamnya"), {
     order: 5,
-    parentElement: genericEl("")
+    parentElement: genericEl(""),
   });
   const sidebar = Object.assign(genericEl(""), {
     querySelectorAll: (sel) => {
       if (sel.indexOf("h2") !== -1) return [heading];
       if (sel.indexOf("groups/") !== -1) return [groupLink];
       return [];
-    }
+    },
   });
 
   /* Trigger composer + editor di halaman grup. */
@@ -528,20 +517,32 @@ function makeFakeFbDom() {
     click: () => {
       state.clicked.push("trigger-composer");
       state.composerOpen = true;
-    }
+    },
+  });
+  /* Dialog composer tiruan: membungkus editor supaya isInComposerDialog lulus
+     (closest('div[role="dialog"]') dari editor mengembalikan dialog ini). */
+  const composerDialog = Object.assign(genericEl(""), {
+    getBoundingClientRect: () => size(500, 500),
+    querySelector: (sel) => (sel.indexOf("contenteditable") !== -1 ? editor : null),
+    querySelectorAll: (sel) => (sel.indexOf("contenteditable") !== -1 ? [editor] : []),
   });
   const editor = Object.assign(genericEl(""), {
     getAttribute: (name) => (name === "aria-placeholder" ? "Buat postingan..." : ""),
     hasAttribute: (name) => name === "data-lexical-editor",
-    getBoundingClientRect: () => size(520, 64)
+    getBoundingClientRect: () => size(520, 64),
+    closest: (sel) => (sel.indexOf("dialog") !== -1 ? composerDialog : null),
   });
 
   const inGroupsPage = () => state.href.indexOf("/groups/") !== -1;
   return {
     state,
     location: {
-      get href() { return state.href; },
-      set href(v) { state.href = v; }
+      get href() {
+        return state.href;
+      },
+      set href(v) {
+        state.href = v;
+      },
     },
     document: {
       body: genericEl(""),
@@ -558,8 +559,8 @@ function makeFakeFbDom() {
         return [];
       },
       execCommand: () => true,
-      addEventListener: noop
-    }
+      addEventListener: noop,
+    },
   };
 }
 
@@ -570,16 +571,12 @@ async function checkHomeToComposerChain() {
   chromeStub.runtime.onMessage = {
     addListener: (fn) => listeners.push(fn),
     removeListener: noop,
-    hasListener: () => false
+    hasListener: () => false,
   };
 
   const ctx = loadScripts(makeSandbox(chromeStub, dom), extractContentFiles(), "");
   const { MSG } = ctx.FBAP.config;
-  report(
-    listeners.length === 1,
-    "Router content script terpasang sekali (guard routerReady)",
-    `listeners=${listeners.length}`
-  );
+  report(listeners.length === 1, "Router content script terpasang sekali (guard routerReady)", `listeners=${listeners.length}`);
 
   const resp = await new Promise((resolve) => {
     const timer = setTimeout(() => resolve({ ok: false, error: "timeout harness" }), 90000);
@@ -589,26 +586,10 @@ async function checkHomeToComposerChain() {
     });
   });
 
-  report(
-    !!(resp && resp.ok),
-    "NAV_HOME_TO_COMPOSER membalas ok (rantai home -> grup -> composer)",
-    JSON.stringify(resp)
-  );
-  report(
-    resp.groupUrl === "https://www.facebook.com/groups/123456789" && !!resp.groupName,
-    "Grup pertama di sidebar terpilih sebagai tujuan composer",
-    `${resp.groupUrl} / ${resp.groupName}`
-  );
-  report(
-    dom.state.clicked.join(" > ") === "menu-grup > pilih-grup > trigger-composer",
-    "Urutan klik natural: menu Grup -> grup teratas -> trigger composer",
-    dom.state.clicked.join(" > ")
-  );
-  report(
-    dom.state.composerOpen === true,
-    "Editor contenteditable terdeteksi (composer benar-benar terbuka)",
-    `composerOpen=${dom.state.composerOpen}`
-  );
+  report(!!(resp && resp.ok), "NAV_HOME_TO_COMPOSER membalas ok (rantai home -> grup -> composer)", JSON.stringify(resp));
+  report(resp.groupUrl === "https://www.facebook.com/groups/123456789" && !!resp.groupName, "Grup pertama di sidebar terpilih sebagai tujuan composer", `${resp.groupUrl} / ${resp.groupName}`);
+  report(dom.state.clicked.join(" > ") === "menu-grup > pilih-grup > trigger-composer", "Urutan klik natural: menu Grup -> grup teratas -> trigger composer", dom.state.clicked.join(" > "));
+  report(dom.state.composerOpen === true, "Editor contenteditable terdeteksi (composer benar-benar terbuka)", `composerOpen=${dom.state.composerOpen}`);
 }
 
 /* ---------- Check rantai posting == rantai uji composer ----------
@@ -625,8 +606,18 @@ function checkPostingUsesComposerChain() {
   report(
     /async function openComposer[\s\S]*findEditor\(3?0?0?0?\)/.test(posting.replace(/\r/g, "")),
     "openComposer() idempoten (cek editor terbuka dulu sebelum klik trigger)",
-    /findEditor\(3000\)/.test(posting) ? "findEditor(3000) ok" : "pola tidak cocok"
+    /findEditor\(3000\)/.test(posting) ? "findEditor(3000) ok" : "pola tidak cocok",
   );
+
+  /* Kontrak: setelah NAV_HOME_TO_COMPOSER membuka composer, ensurePostTab
+     TIDAK boleh me-reload tab yang sudah berada di grup target (reload
+     menghancurkan composer modal). Guard sameGroupUrl wajib ada. */
+  const tabs = read("src/background/tabs.js").replace(/\r/g, "");
+  report(/function sameGroupUrl[\s\S]*?sameGroupUrl,/.test(tabs), "sameGroupUrl terdaftar di API background.tabs", /sameGroupUrl,/.test(tabs) ? "ok" : "tidak diekspor");
+  report(/sameGroupUrl\(cur && cur\.url, url\)/.test(tabs), "ensurePostTab skip reload bila tab sudah di grup target (guard sameGroupUrl)", /sameGroupUrl\(cur && cur\.url, url\)/.test(tabs) ? "ok" : "guard hilang");
+  const navIdx = src.indexOf("NAV_HOME_TO_COMPOSER");
+  const postIdx = src.indexOf("ensurePostTab(run.groupUrl)");
+  report(navIdx !== -1 && postIdx !== -1 && navIdx < postIdx, "Urutan scheduler: navigasi NAV_HOME_TO_COMPOSER SEBELUM ensurePostTab(groupUrl)", navIdx !== -1 && postIdx !== -1 ? `posisi ${navIdx} < ${postIdx}` : "urutan salah");
 }
 
 /* ---------- Check wiring checkbox "autoposting" (mode auto vs manual) ----------
@@ -639,59 +630,26 @@ function checkPostingUsesComposerChain() {
    -> EXECUTE_POST -> content.js -> postToGroup(). */
 function checkAutoPostWiring() {
   const html = read("dashboard.html");
-  report(
-    /id="chkAutoPost"/.test(html) && !/id="btnTestComposer"/.test(html),
-    "Checkbox \"autoposting\" menggantikan tombol \"Uji Post\" di dashboard.html",
-    /id="chkAutoPost"/.test(html) ? "ok" : "checkbox tidak ada"
-  );
+  report(/id="chkAutoPost"/.test(html) && !/id="btnTestComposer"/.test(html), 'Checkbox "autoposting" menggantikan tombol "Uji Post" di dashboard.html', /id="chkAutoPost"/.test(html) ? "ok" : "checkbox tidak ada");
 
   const configSrc = read("src/shared/config.js");
-  report(
-    /autoPost:\s*true/.test(configSrc) && /MANUAL_POST_WINDOW_MS:\s*\d+/.test(configSrc),
-    "Default settings.autoPost + LIMITS.MANUAL_POST_WINDOW_MS ada di FBAP.config",
-    "ok"
-  );
+  report(/autoPost:\s*true/.test(configSrc) && /MANUAL_POST_WINDOW_MS:\s*\d+/.test(configSrc), "Default settings.autoPost + LIMITS.MANUAL_POST_WINDOW_MS ada di FBAP.config", "ok");
 
   const controlsSrc = read("src/dashboard/controls.js");
   const payloadIdx = controlsSrc.indexOf('autoPost: $("chkAutoPost").checked');
   const changeIdx = controlsSrc.indexOf('$("chkAutoPost").addEventListener("change"');
-  report(
-    payloadIdx !== -1 && changeIdx !== -1,
-    "Checkbox autoposting dibaca ke payload START_POSTING + handler change terpasang",
-    payloadIdx !== -1 && changeIdx !== -1 ? "ok" : "wiring controls.js tidak lengkap"
-  );
-  report(
-    /addEventListener\("change"[\s\S]*?STORAGE\.SETTINGS/.test(controlsSrc),
-    "Pilihan autoposting disimpan ke STORAGE.SETTINGS (persisten antar sesi)",
-    "ok"
-  );
+  report(payloadIdx !== -1 && changeIdx !== -1, "Checkbox autoposting dibaca ke payload START_POSTING + handler change terpasang", payloadIdx !== -1 && changeIdx !== -1 ? "ok" : "wiring controls.js tidak lengkap");
+  report(/addEventListener\("change"[\s\S]*?STORAGE\.SETTINGS/.test(controlsSrc), "Pilihan autoposting disimpan ke STORAGE.SETTINGS (persisten antar sesi)", "ok");
 
   const settingsSrc = read("src/dashboard/settings.js");
-  report(
-    /chkAutoPost"\)\.checked = s\.autoPost !== false/.test(settingsSrc) &&
-      /autoPost: State\.settings\.autoPost !== false/.test(settingsSrc),
-    "Checkbox dipulihkan dari storage & autoPost tidak hilang saat Simpan Pengaturan",
-    "ok"
-  );
+  report(/chkAutoPost"\)\.checked = s\.autoPost !== false/.test(settingsSrc) && /autoPost: State\.settings\.autoPost !== false/.test(settingsSrc), "Checkbox dipulihkan dari storage & autoPost tidak hilang saat Simpan Pengaturan", "ok");
 
   const sched = read("src/background/scheduler.js").replace(/\r/g, "");
-  report(
-    /const autoPost = run\.settings\.autoPost !== false;[\s\S]*?type: MSG\.EXECUTE_POST,\s*autoPost,/.test(sched),
-    "Scheduler membaca settings.autoPost dan mengirimkannya di EXECUTE_POST",
-    "ok"
-  );
-  report(
-    /"manual \(jendela "[\s\S]*?MANUAL_POST_WINDOW_MS/.test(sched),
-    "Log scheduler membedakan mode autoposting vs manual (jendela 10s)",
-    "ok"
-  );
+  report(/const autoPost = run\.settings\.autoPost !== false;[\s\S]*?type: MSG\.EXECUTE_POST,\s*autoPost,/.test(sched), "Scheduler membaca settings.autoPost dan mengirimkannya di EXECUTE_POST", "ok");
+  report(/"manual \(jendela "[\s\S]*?MANUAL_POST_WINDOW_MS/.test(sched), "Log scheduler membedakan mode autoposting vs manual (jendela 10s)", "ok");
 
   const contentSrc = read("src/content/content.js").replace(/\r/g, "");
-  report(
-    /MSG\.EXECUTE_POST[\s\S]*?msg\.autoPost !== false/.test(contentSrc),
-    "Router content script meneruskan msg.autoPost ke postToGroup()",
-    "ok"
-  );
+  report(/MSG\.EXECUTE_POST[\s\S]*?msg\.autoPost !== false/.test(contentSrc), "Router content script meneruskan msg.autoPost ke postToGroup()", "ok");
 
   const posting = read("src/content/posting.js").replace(/\r/g, "");
   const uploadFirst = posting.indexOf("uploadMedia(");
@@ -699,16 +657,15 @@ function checkAutoPostWiring() {
   report(
     uploadFirst !== -1 && captionAfter !== -1 && uploadFirst < captionAfter,
     "postToGroup: uploadMedia DIPANGGIL SEBELUM typeCaption (urutan media dulu)",
-    uploadFirst !== -1 && captionAfter !== -1 ? `posisi ${uploadFirst} < ${captionAfter}` : "urutan salah"
+    uploadFirst !== -1 && captionAfter !== -1 ? `posisi ${uploadFirst} < ${captionAfter}` : "urutan salah",
   );
   const manualBranch = posting.indexOf("if (!autoPost) {");
   const manualWait = posting.indexOf("await sleep(MANUAL_POST_WINDOW_MS);", manualBranch);
   const submitClick = posting.indexOf("await findPostButton(20000)");
   report(
-    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick &&
-      /if \(!autoPost\)[\s\S]*?return true;/.test(posting),
+    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick && /if \(!autoPost\)[\s\S]*?return true;/.test(posting),
     "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return true SEBELUM klik tombol Posting",
-    "ok"
+    "ok",
   );
 
   /* ---------- Check jalur produksi (Mulai Posting) = workflow media-dulu ----------
@@ -717,34 +674,17 @@ function checkAutoPostWiring() {
      composer tertutup (anti false-sukses antrean). */
   const core = posting.indexOf("async function composeMediaAndCaption");
   const usedByProd = posting.indexOf("await composeMediaAndCaption(caption");
+  report(core !== -1 && usedByProd !== -1, "postToGroup memakai inti bersama composeMediaAndCaption (satu jalur media-dulu)", core !== -1 && usedByProd !== -1 ? "ok" : "inti bersama tidak dipakai");
   report(
-    core !== -1 && usedByProd !== -1,
-    "postToGroup memakai inti bersama composeMediaAndCaption (satu jalur media-dulu)",
-    core !== -1 && usedByProd !== -1 ? "ok" : "inti bersama tidak dipakai"
-  );
-  report(
-    /async function postToGroup\(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true\)/.test(posting) &&
-      /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
+    /async function postToGroup\(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true\)/.test(posting) && /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
     "postToGroup(caption, media, autoPost): inti media-dulu -> caption -> klik tombol Posting",
-    "ok"
+    "ok",
   );
-  report(
-    /VERIFIKASI PASCA-SUBMIT[\s\S]*?composer tertutup setelah klik Posting[\s\S]*?retry/.test(posting),
-    "postToGroup: verifikasi composer tertutup + retry (anti false-sukses)",
-    "ok"
-  );
+  report(/VERIFIKASI PASCA-SUBMIT[\s\S]*?composer tertutup setelah klik Posting[\s\S]*?retry/.test(posting), "postToGroup: verifikasi composer tertutup + retry (anti false-sukses)", "ok");
   const media = read("src/content/media.js").replace(/\r/g, "");
-  report(
-    /FALLBACK[\s\S]*?attachMedia\(mediaDataUrl/.test(media),
-    "uploadMedia punya fallback attachMedia (dataURL rusak tetap terlampir)",
-    "ok"
-  );
+  report(/FALLBACK[\s\S]*?attachMedia\(mediaDataUrl/.test(media), "uploadMedia punya fallback attachMedia (dataURL rusak tetap terlampir)", "ok");
   const schedSrc = read("src/background/scheduler.js");
-  report(
-    /EXECUTE_POST,[\s\S]*?150000/.test(schedSrc.replace(/\r/g, "")),
-    "Timeout EXECUTE_POST dinaikkan ke 150s (upload+GATE+caption+submit)",
-    /150000/.test(schedSrc) ? "ok" : "masih 90s"
-  );
+  report(/EXECUTE_POST,[\s\S]*?150000/.test(schedSrc.replace(/\r/g, "")), "Timeout EXECUTE_POST dinaikkan ke 150s (upload+GATE+caption+submit)", /150000/.test(schedSrc) ? "ok" : "masih 90s");
 }
 
 /* ---------- 10. WIRING WORKFLOW SCAN (pola fb-grupV3) ----------
@@ -757,41 +697,13 @@ function checkScanWiring() {
   const content = read("src/content/content.js").replace(/\r/g, "");
   const scraper = read("src/content/scraper.js").replace(/\r/g, "");
 
-  report(
-    /MSG\.START_SCAN[\s\S]*?isScanActive\(\)[\s\S]*?runScan\(\)/.test(sw),
-    "Router background: START_SCAN -> guard isScanActive -> runScan fire-and-forget",
-    "ok"
-  );
-  report(
-    /tabs\.create[\s\S]*?waitTabLoaded[\s\S]*?requestScan[\s\S]*?mergeGroups[\s\S]*?tabs\.remove/.test(scan),
-    "scan.js: tabs.create -> waitTabLoaded -> requestScan -> mergeGroups -> tabs.remove",
-    "ok"
-  );
-  report(
-    /isScanActive[\s\S]*?SCANNING|scanning/.test(scan),
-    "scan.js: guard status loading/scanning (anti dobel scan)",
-    "ok"
-  );
-  report(
-    /MSG\.START_SCAN/.test(groups) && !/querySelectorAll|humanScroll/.test(groups),
-    "Dashboard hanya mengirim START_SCAN (tanpa scraping di dashboard)",
-    "ok"
-  );
-  report(
-    /MSG\.SCAN_GROUPS[\s\S]*?scanGroups\(\)/.test(content),
-    "Router content script menangani SCAN_GROUPS dengan scanGroups()",
-    "ok"
-  );
-  report(
-    /function scanGroups[\s\S]*?findSidebar\(\)[\s\S]*?SCAN_MAX_PASSES[\s\S]*?collectGroups/.test(scraper),
-    "scanGroups(): findSidebar + collectGroups + loop dibatasi SCAN_MAX_PASSES",
-    "ok"
-  );
-  report(
-    /function requestScan[\s\S]*?ensureContentScript/.test(scan),
-    "requestScan() punya fallback inject content script bila belum siap",
-    "ok"
-  );
+  report(/MSG\.START_SCAN[\s\S]*?isScanActive\(\)[\s\S]*?runScan\(\)/.test(sw), "Router background: START_SCAN -> guard isScanActive -> runScan fire-and-forget", "ok");
+  report(/tabs\.create[\s\S]*?waitTabLoaded[\s\S]*?requestScan[\s\S]*?mergeGroups[\s\S]*?tabs\.remove/.test(scan), "scan.js: tabs.create -> waitTabLoaded -> requestScan -> mergeGroups -> tabs.remove", "ok");
+  report(/isScanActive[\s\S]*?SCANNING|scanning/.test(scan), "scan.js: guard status loading/scanning (anti dobel scan)", "ok");
+  report(/MSG\.START_SCAN/.test(groups) && !/querySelectorAll|humanScroll/.test(groups), "Dashboard hanya mengirim START_SCAN (tanpa scraping di dashboard)", "ok");
+  report(/MSG\.SCAN_GROUPS[\s\S]*?scanGroups\(\)/.test(content), "Router content script menangani SCAN_GROUPS dengan scanGroups()", "ok");
+  report(/function scanGroups[\s\S]*?findSidebar\(\)[\s\S]*?SCAN_MAX_PASSES[\s\S]*?collectGroups/.test(scraper), "scanGroups(): findSidebar + collectGroups + loop dibatasi SCAN_MAX_PASSES", "ok");
+  report(/function requestScan[\s\S]*?ensureContentScript/.test(scan), "requestScan() punya fallback inject content script bila belum siap", "ok");
 }
 
 /* ---------- 11. RUNNER ---------- */
@@ -817,4 +729,3 @@ function checkScanWiring() {
   console.log(`\n== Ringkasan: ${results.length - failed.length}/${results.length} check lulus ==`);
   process.exit(failed.length ? 1 : 0);
 })();
-

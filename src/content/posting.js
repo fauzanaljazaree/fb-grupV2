@@ -22,8 +22,8 @@
   const { randInt } = FBAP.random;
   const { sleep } = FBAP.time;
   const { parse } = FBAP.spintax;
-  const { CAPTION_EDITOR } = content.selectors;
-  const { findEditor, findPostButton, waitForTextInTrigger, findComposerDialog, findMediaScope, waitFor } = content.dom;
+  const { CAPTION_EDITOR, CAPTION_EDITOR_LEXICAL } = content.selectors;
+  const { findEditor, findPostButton, waitForTextInTrigger, findComposerDialog, findMediaScope, waitFor, isEditableVisible, isInComposerDialog } = content.dom;
   const { humanScrollToEl } = content.stealth;
   const { uploadMedia } = content.media;
 
@@ -64,7 +64,10 @@
      Dipakai oleh postToGroup() untuk kedua mode (autoposting & manual).
      ========================================================= */
 
-  const normText = (s) => String(s || "").replace(/\s+/g, " ").trim();
+  const normText = (s) =>
+    String(s || "")
+      .replace(/\s+/g, " ")
+      .trim();
   const getEditorText = (editor) => normText(editor ? editor.textContent : "");
 
   /** Kosongkan editor Lexical (focus + select all + delete). */
@@ -85,9 +88,14 @@
     const lines = String(caption).split("\n");
     for (let i = 0; i < lines.length; i++) {
       if (i > 0) {
-        editor.dispatchEvent(new KeyboardEvent("keydown", {
-          key: "Enter", code: "Enter", bubbles: true, cancelable: true
-        }));
+        editor.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            code: "Enter",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
         await sleep(120);
       }
       const line = lines[i];
@@ -97,12 +105,17 @@
       const ok = document.execCommand("insertText", false, line);
       await sleep(120); // Lexical commit async — JANGAN baca sinkron!
       const grew = getEditorText(editor).length > beforeLen;
-      if (!ok || !grew) { // fallback paste
+      if (!ok || !grew) {
+        // fallback paste
         const d = new DataTransfer();
         d.setData("text/plain", line);
-        editor.dispatchEvent(new ClipboardEvent("paste", {
-          clipboardData: d, bubbles: true, cancelable: true
-        }));
+        editor.dispatchEvent(
+          new ClipboardEvent("paste", {
+            clipboardData: d,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
         await sleep(200);
       }
       await sleep(150);
@@ -126,16 +139,13 @@
     }
     await insertCaptionLines(editor, caption);
     const inserted = getEditorText(editor);
-    if (inserted.length < expected.length * 0.8)
-      throw new Error(`Caption tidak penuh (${inserted.length}/${expected.length})`);
+    if (inserted.length < expected.length * 0.8) throw new Error(`Caption tidak penuh (${inserted.length}/${expected.length})`);
     const rest = inserted.slice(expected.length).trim();
-    if (inserted.length > expected.length &&
-        (rest === expected || (inserted.length >= expected.length * 1.9 && inserted.includes(expected)))) {
+    if (inserted.length > expected.length && (rest === expected || (inserted.length >= expected.length * 1.9 && inserted.includes(expected)))) {
       await clearEditor(editor);
       await insertCaptionLines(editor, caption);
       const recheck = getEditorText(editor);
-      if (recheck !== expected && recheck.length > expected.length * 1.4)
-        throw new Error("Caption masih dobel setelah ketik ulang — stop.");
+      if (recheck !== expected && recheck.length > expected.length * 1.4) throw new Error("Caption masih dobel setelah ketik ulang — stop.");
     }
   }
 
@@ -153,8 +163,7 @@
     const editor0 = await openComposer();
 
     // 2. Dialog composer ASLI (dicari dari ISI, bukan aria-label)
-    const dialog = findComposerDialog() ||
-                   (editor0.closest('div[role="dialog"]') || null);
+    const dialog = findComposerDialog() || editor0.closest('div[role="dialog"]') || null;
 
     // 3. MEDIA DULU + GATE preview blob (skip bila materi tanpa media)
     if (mediaDataUrl) {
@@ -162,14 +171,33 @@
       if (!ok) throw new Error("Gagal melampirkan media (GATE preview tidak lolos).");
     }
 
-    // 4. Query editor SETELAH media — node fresh; scope preview media DULU
-    const editor = await waitFor(() => {
-      const ms = findMediaScope();
-      if (ms && ms.querySelector(CAPTION_EDITOR)) return ms.querySelector(CAPTION_EDITOR);
-      const live = dialog && document.contains(dialog) ? dialog : null;
-      if (live && live.querySelector(CAPTION_EDITOR)) return live.querySelector(CAPTION_EDITOR);
-      return document.querySelector(CAPTION_EDITOR);
-    }, { label: "editor Lexical di scope preview media" });
+    // 4. Query editor SETELAH media — node fresh; scope preview media DULU.
+    //    PENTING: jangan pakai referensi `dialog` dari step 2 (bisa STALE
+    //    karena composer Lexical di-re-render setelah attach media), dan
+    //    jangan hanya andalkan aria-placeholder (berubah/hilang saat ada
+    //    lampiran). WAJIB editor di dalam dialog composer (isInComposerDialog)
+    //    supaya tidak salah menangkap kolom komentar. TIDAK ada fallback
+    //    document-wide — bila tidak ketemu, gagal (jangan ketik ke komentar).
+    const pickEditorIn = (root) => {
+      if (!root || !root.querySelector) return null;
+      const strict = root.querySelector(CAPTION_EDITOR);
+      if (strict && isEditableVisible(strict) && isInComposerDialog(strict)) return strict;
+      const lexical = root.querySelector(CAPTION_EDITOR_LEXICAL);
+      if (lexical && isEditableVisible(lexical) && isInComposerDialog(lexical)) return lexical;
+      return null;
+    };
+    const editor = await waitFor(
+      () => {
+        const ms = findMediaScope();
+        const inMedia = ms && pickEditorIn(ms);
+        if (inMedia) return inMedia;
+        const freshDialog = findComposerDialog();
+        const inDialog = freshDialog && pickEditorIn(freshDialog);
+        if (inDialog) return inDialog;
+        return null;
+      },
+      { label: "editor Lexical di scope preview media" },
+    );
 
     editor.scrollIntoView({ block: "center" });
     await sleep(300);
@@ -210,15 +238,15 @@
     postBtn.click();
 
     // 7. VERIFIKASI PASCA-SUBMIT: composer & preview media harus hilang.
-    await waitFor(() => (findComposerDialog() || findMediaScope() ? null : true),
-      { timeoutMs: 15000, label: "composer tertutup setelah klik Posting" }
-    ).catch(async () => {
+    await waitFor(() => (findComposerDialog() || findMediaScope() ? null : true), { timeoutMs: 15000, label: "composer tertutup setelah klik Posting" }).catch(async () => {
       /* Composer masih terbuka -> coba sekali lagi (kadang klik pertama
          nyangkut saat upload belum selesai), lalu gagal permanen. */
       const retry = await findPostButton(5000);
-      if (retry) { await humanScrollToEl(retry); retry.click(); }
-      await waitFor(() => (findComposerDialog() || findMediaScope() ? null : true),
-        { timeoutMs: 15000, label: "composer tertutup (retry)" });
+      if (retry) {
+        await humanScrollToEl(retry);
+        retry.click();
+      }
+      await waitFor(() => (findComposerDialog() || findMediaScope() ? null : true), { timeoutMs: 15000, label: "composer tertutup (retry)" });
     });
 
     await sleep(randInt(1500, 2600));
