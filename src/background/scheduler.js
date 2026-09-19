@@ -42,7 +42,9 @@
     run.materials = materialList;
     run.groups = groupList.map((g) => ({ name: g.name || g.url, url: g.url }));
     run.settings = { ...DEFAULTS.settings, ...settings };
-    run.showFbTab = !!(settings && settings.showFbTab);
+    /* Default "Tampilkan tab FB saat posting" = AKTIF (checkbox dashboard
+       tercentang secara default); hanya dimatikan bila eksplisit false. */
+    run.showFbTab = settings.showFbTab !== false;
     /* 1 materi ke semua grup sampai selesai, baru materi berikutnya:
        loop luar = materi, loop dalam = grup. */
     run.queue = [];
@@ -211,14 +213,21 @@
       run.groupName = nav.groupName || group.name || "(tanpa nama)";
       await log(`Grup target: ${run.groupName} (${run.groupUrl})`, "ok");
 
-      /* STEP 4: posting materi ke grup target */
-      await log(`Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length})`, "info");
+      /* STEP 4: posting materi ke grup target.
+         run.settings.autoPost = checkbox "autoposting" dashboard:
+           true  -> content script klik tombol Posting otomatis.
+           false -> content script berhenti setelah media+caption terisi,
+                    beri user MANUAL_POST_WINDOW_MS untuk klik Posting
+                    sendiri; setelah itu alur lanjut tanpa memedulikan. */
+      const autoPost = run.settings.autoPost !== false;
+      await log(`Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length}) — mode: ${autoPost ? "autoposting (klik Posting otomatis)" : "manual (jendela " + (LIMITS.MANUAL_POST_WINDOW_MS / 1000) + "s untuk klik Posting sendiri)"}`, "info");
 
       const tab = await ensurePostTab(run.groupUrl);
       await waitTabLoaded(tab.id, 45000);
       await ensureContentScript(tab.id);
       const res = await sendToContent(tab.id, {
         type: MSG.EXECUTE_POST,
+        autoPost,
         caption: material.caption || "",
         mediaDataUrl: material.mediaDataUrl || null,
         mediaMime: material.mediaMime || "application/octet-stream",
@@ -230,7 +239,9 @@
         statsNow[today] = (statsNow[today] || 0) + 1;
         run.results[group.url] = { ok: true, mi, at: Date.now() };
         await storageSet({ [STORAGE.STATS]: statsNow, [STORAGE.GROUP_RESULTS]: run.results });
-        await log(`Sukses materi #${mi + 1} di ${run.groupName}`, "ok");
+        await log(autoPost
+          ? `Sukses materi #${mi + 1} di ${run.groupName}`
+          : `Materi #${mi + 1} siap di ${run.groupName}: media+caption terisi, jendela manual habis — lanjut berikutnya (hasil klik Posting user tidak diperiksa).`, "ok");
         chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: true, mi }).catch(() => {});
       } else {
         const msg = (res && res.error) || "tidak ada respons";
@@ -316,50 +327,6 @@
     }
   }
 
-  /* ---------------- UJI WORKFLOW POST: MEDIA+CAPTION DI COMPOSER ----------------
-     Tombol "Uji Post" dashboard. TIDAK menyentuh antrean/cursor: pakai materi
-     pertama yang media-nya tersedia dari storage. Rantai: home -> grup ->
-     composer (NAV_HOME_TO_COMPOSER, terbukti), lalu EXECUTE_TEST_POST:
-     uploadMedia DULU + GATE preview blob -> query editor ulang -> typeCaption
-     -> STOP (user klik Posting manual). */
-  async function testPostFirstMaterial() {
-    if (run.busy) return { ok: false, error: "Background sedang memproses posting" };
-    try {
-      const st = await storageGet([STORAGE.MATERIALS]);
-      const materials = st[STORAGE.MATERIALS] || [];
-      const material = materials.find((m) => m.available && m.mediaDataUrl) || materials[0];
-      if (!material) return { ok: false, error: "Tidak ada materi. Import Excel + media dulu." };
-
-      await log(`Uji Post: navigasi home -> grup -> composer, lalu media+caption "${material.mediaName || "(tanpa media)"}"...`, "info");
-      const tab = await ensurePostTab(FB_HOME);
-      await focusTab(tab.id);
-      await waitTabLoaded(tab.id, 45000);
-      await ensureContentScript(tab.id);
-      const nav = await sendToContent(tab.id, { type: MSG.NAV_HOME_TO_COMPOSER }, 120000);
-      if (!nav || !nav.ok) {
-        throw new Error(`Navigasi gagal: ${(nav && nav.error) || "tidak ada respons"}`);
-      }
-      const res = await sendToContent(tab.id, {
-        type: MSG.EXECUTE_TEST_POST,
-        caption: material.caption || "",
-        mediaDataUrl: material.available ? material.mediaDataUrl : null,
-        mediaMime: material.mediaMime || "application/octet-stream",
-        mediaName: material.available ? (material.mediaName || "") : ""
-      }, 120000);
-      if (res && res.ok) {
-        await log(`Uji Post sukses di ${nav.groupName || "(tanpa nama)"}: media ter-lampir (GATE lolos) + caption terisi. TOMBOL POSTING TIDAK DIKLIK — periksa composer.`, "ok");
-      } else {
-        await log(`Uji Post gagal: ${(res && res.error) || "tidak ada respons"}`, "err");
-      }
-      await focusDashboard();
-      return res || { ok: false, error: "tidak ada respons" };
-    } catch (err) {
-      await focusDashboard();
-      await log(`Error uji post: ${err.message}`, "err");
-      return { ok: false, error: err.message };
-    }
-  }
-
-  background.scheduler = { ALARM_NAME, startPosting, stopPosting, scheduleNext, processNextPost, getStatus, openComposerFromHome, testPostFirstMaterial };
+  background.scheduler = { ALARM_NAME, startPosting, stopPosting, scheduleNext, processNextPost, getStatus, openComposerFromHome };
 })(globalThis);
 

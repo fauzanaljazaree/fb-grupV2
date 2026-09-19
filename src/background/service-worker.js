@@ -34,7 +34,7 @@ importScripts(
 
   const { run, restoreState } = FBAP.background.state;
   const { keepAwakeOn } = FBAP.background.power;
-  const { startPosting, stopPosting, processNextPost, getStatus, openComposerFromHome, testPostFirstMaterial, ALARM_NAME } = FBAP.background.scheduler;
+  const { startPosting, stopPosting, processNextPost, getStatus, openComposerFromHome, ALARM_NAME } = FBAP.background.scheduler;
   const { openDashboard, focusDashboard, showFbTab } = FBAP.background.tabs;
   const { runScan, isScanActive } = FBAP.background.scan;
 
@@ -71,10 +71,6 @@ importScripts(
         case MSG.OPEN_COMPOSER:
           if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
           sendResponse(await openComposerFromHome());
-          break;
-        case MSG.TEST_POST:
-          if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
-          sendResponse(await testPostFirstMaterial());
           break;
         case MSG.START_SCAN:
           /* Guard anti-dobel: tolak bila scan masih aktif. runScan

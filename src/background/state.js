@@ -28,7 +28,10 @@
     groupName: null,
     postTabId: null,
     dashboardTabId: null,
-    showFbTab: false,
+    /* Default selaras checkbox dashboard "Tampilkan tab FB saat posting"
+       (tercentang). Selama sesi berjalan nilainya selalu ditimpa oleh
+       startPosting()/SET_VIEW. */
+    showFbTab: true,
     postsSinceCooldown: 0,
     cooldownUntil: 0
   };

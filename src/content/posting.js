@@ -2,8 +2,13 @@
    FB Auto Poster - Content: Eksekusi Posting ke Grup
    Urutan: trigger composer -> editor -> LAMPIRKAN MEDIA DULU
            (GATE preview blob) -> tulis caption (Lexical-safe,
-           anti-dobel) -> klik tombol Posting + verifikasi
-           composer tertutup.
+           anti-dobel) -> SUBMIT sesuai mode:
+             • autoposting ON  : klik tombol Posting + verifikasi
+                                 composer tertutup.
+             • autoposting OFF : berhenti setelah media+caption
+                                 terisi, beri user MANUAL_POST_WINDOW_MS
+                                 untuk klik Posting sendiri, lalu
+                                 lanjut tanpa memedulikan hasilnya.
    openComposer() dipisah agar bisa dipakai ulang oleh pesan
    NAV_HOME_TO_COMPOSER (uji navigasi home -> grup -> composer).
    ========================================================= */
@@ -13,6 +18,7 @@
 
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
+  const { MANUAL_POST_WINDOW_MS } = FBAP.config.LIMITS;
   const { randInt } = FBAP.random;
   const { sleep } = FBAP.time;
   const { parse } = FBAP.spintax;
@@ -20,13 +26,6 @@
   const { findEditor, findPostButton, waitForTextInTrigger, findComposerDialog, findMediaScope, waitFor } = content.dom;
   const { humanScrollToEl } = content.stealth;
   const { uploadMedia } = content.media;
-
-  /* ---------------------------------------------------------
-     FLAG DEVELOPMENT (DRY RUN)
-     true  = isi caption+media tapi TIDAK klik tombol Posting.
-     false = posting beneran (MODE PRODUKSI).
-     --------------------------------------------------------- */
-  const DRY_RUN_NO_SUBMIT = false;
 
   /** Kata kunci trigger composer di halaman grup (ID & EN). */
   const COMPOSER_TRIGGERS = ["tulis sesuatu", "write something", "buat postingan"];
@@ -62,7 +61,7 @@
      sehingga caption yang diketik SEBELUM media ikut terhapus.
      Aturan: caption & grup tambahan tidak disentuh sebelum
      GATE MEDIA (preview blob baru ter-render) lolos.
-     Dipakai oleh testCompose() (dry-run) DAN postToGroup() (produksi).
+     Dipakai oleh postToGroup() untuk kedua mode (autoposting & manual).
      ========================================================= */
 
   const normText = (s) => String(s || "").replace(/\s+/g, " ").trim();
@@ -140,19 +139,14 @@
     }
   }
 
-  /** Orkestrasi uji: composer -> uploadMedia DULU -> query editor ulang
-      di scope preview -> typeCaption -> STOP (user klik Posting manual).
-      Tidak menyentuh antrean / tombol Posting. */
-  async function testCompose(caption, mediaDataUrl, mediaMime, mediaName) {
-    const info = await composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName);
-    // STOP di sini — user klik Posting manual (tanpa submit otomatis)
-    return { dialog: info.dialog, editorText: info.editorText };
-  }
+  /* Catatan: tidak ada lagi fungsi "uji tanpa submit" tersendiri —
+     mode manual di postToGroup() sudah mencakup alur itu (media+caption
+     terisi, tombol Posting tidak diklik otomatis). */
 
   /* =========================================================
      INTI BERSAMA (eksekusi): composer -> media DULU + GATE ->
-     query editor ulang -> typeCaption. Dipakai postToGroup &
-     testCompose supaya urutan media-dulu hanya ditulis sekali.
+     query editor ulang -> typeCaption. Dipakai postToGroup
+     supaya urutan media-dulu hanya ditulis sekali.
      ========================================================= */
   async function composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName) {
     // 1. Buka composer (idempoten — reuse editor bila sudah terbuka)
@@ -188,26 +182,34 @@
   }
 
   /** Posting satu materi: inti media-dulu + caption, LALU submit.
-      Verifikasi pasca-submit: composer harus tertutup, bila tidak ->
-      throw (scheduler mencatat GAGAL, antrean tidak maju palsu). */
-  async function postToGroup(caption, mediaDataUrl, mediaMime, mediaName) {
+      `autoPost` (checkbox "autoposting" dashboard):
+        true  -> klik tombol Posting otomatis + VERIFIKASI composer tertutup
+                 (bila tidak tertutup -> throw, scheduler mencatat GAGAL).
+        false -> cukup sampai media dimuat & caption tertulis; beri user
+                 MANUAL_POST_WINDOW_MS untuk klik Posting sendiri. Setelah
+                 jendela berakhir, alur tetap lanjut apa pun yang terjadi
+                 (hasil klik user tidak diperiksa — draft dibiarkan apa adanya). */
+  async function postToGroup(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true) {
     // 1-3. Media DULU (GATE) -> editor ulang -> caption Lexical anti-dobel
-    const info = await composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName);
+    await composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName);
 
     // 4. Jeda baca manusiawi sebelum submit
     await sleep(randInt(800, 1600));
 
-    // 5. Klik tombol Posting — KECUALI mode DRY RUN
-    if (DRY_RUN_NO_SUBMIT) {
-      console.log("[FB-AutoPoster][DRY-RUN] Skip klik tombol Posting. Media/caption sudah terisi.");
+    // 5. MODE MANUAL: jangan klik Posting — beri user jendela waktu.
+    if (!autoPost) {
+      console.log(`[FB-AutoPoster] Mode manual: media+caption siap di editor. Menunggu ${MANUAL_POST_WINDOW_MS / 1000}s agar user klik Posting sendiri.`);
+      await sleep(MANUAL_POST_WINDOW_MS);
       return true;
     }
+
+    // 6. MODE AUTOPOSTING: klik tombol Posting
     const postBtn = await findPostButton(20000);
     if (!postBtn) throw new Error("Tombol Posting tidak ditemukan.");
     await humanScrollToEl(postBtn);
     postBtn.click();
 
-    // 6. VERIFIKASI PASCA-SUBMIT: composer & preview media harus hilang.
+    // 7. VERIFIKASI PASCA-SUBMIT: composer & preview media harus hilang.
     await waitFor(() => (findComposerDialog() || findMediaScope() ? null : true),
       { timeoutMs: 15000, label: "composer tertutup setelah klik Posting" }
     ).catch(async () => {
@@ -223,5 +225,5 @@
     return true;
   }
 
-  content.posting = { postToGroup, openComposer, typeCaption, testCompose, composeMediaAndCaption };
+  content.posting = { postToGroup, openComposer, typeCaption, composeMediaAndCaption };
 })(globalThis);

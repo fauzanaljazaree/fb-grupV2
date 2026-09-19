@@ -323,8 +323,10 @@ function checkLoadContent() {
 }
 /* ---------- 7. PARITAS DENGAN VERSI SEBELUM REFACTOR ---------- */
 const BACKUP_DIR = "backups/pre-refactor";
-/* Identifier yang sengaja dibuang saat refactor (kode mati, lihat catatan). */
-const INTENTIONAL_REMOVALS = ["spin", "storageRemove", "EDITOR_SELECTOR", "randFloat"];
+/* Identifier yang sengaja dibuang saat refactor (kode mati, lihat catatan).
+   `DRY_RUN_NO_SUBMIT` dibuang karena perannya digantikan checkbox
+   "autoposting" dashboard (mode manual = parameter autoPost di postToGroup). */
+const INTENTIONAL_REMOVALS = ["spin", "storageRemove", "EDITOR_SELECTOR", "randFloat", "DRY_RUN_NO_SUBMIT"];
 /* Nama lama yang digabung/dipindah saat refactor: nama lama -> lokasi baru. */
 const RENAMES = {
   gaussRandom: "FBAP.random.gauss",
@@ -627,43 +629,67 @@ function checkPostingUsesComposerChain() {
   );
 }
 
-/* ---------- Check wiring tombol "Uji Post" (media dulu -> caption) ----------
-   Alur tombol "Uji Post" wajib: TEST_POST (dashboard) -> testPostFirstMaterial
-   (background) -> EXECUTE_TEST_POST (content) -> testCompose yang memakai
-   uploadMedia SEBELUM typeCaption (urutan media dulu, tanpa klik Posting). */
-function checkTestPostWiring() {
-  const config = read("src/shared/config.js");
+/* ---------- Check wiring checkbox "autoposting" (mode auto vs manual) ----------
+   Checkbox dashboard adalah saklar mode posting:
+     checked   -> EXECUTE_POST.autoPost true  -> postToGroup klik Posting.
+     unchecked -> EXECUTE_POST.autoPost false -> postToGroup berhenti setelah
+                  media+caption, menunggu LIMITS.MANUAL_POST_WINDOW_MS, lalu
+                  lanjut tanpa memedulikan hasil klik user.
+   Nilai harus mengalir: HTML -> controls.js -> payload.settings -> scheduler
+   -> EXECUTE_POST -> content.js -> postToGroup(). */
+function checkAutoPostWiring() {
+  const html = read("dashboard.html");
   report(
-    /TEST_POST:\s*"TEST_POST"/.test(config) && /EXECUTE_TEST_POST:\s*"EXECUTE_TEST_POST"/.test(config),
-    "Konstanta TEST_POST & EXECUTE_TEST_POST terdaftar di FBAP.config.MSG",
+    /id="chkAutoPost"/.test(html) && !/id="btnTestComposer"/.test(html),
+    "Checkbox \"autoposting\" menggantikan tombol \"Uji Post\" di dashboard.html",
+    /id="chkAutoPost"/.test(html) ? "ok" : "checkbox tidak ada"
+  );
+
+  const configSrc = read("src/shared/config.js");
+  report(
+    /autoPost:\s*true/.test(configSrc) && /MANUAL_POST_WINDOW_MS:\s*\d+/.test(configSrc),
+    "Default settings.autoPost + LIMITS.MANUAL_POST_WINDOW_MS ada di FBAP.config",
     "ok"
   );
 
-  const controls = read("src/dashboard/controls.js");
+  const controlsSrc = read("src/dashboard/controls.js");
+  const payloadIdx = controlsSrc.indexOf('autoPost: $("chkAutoPost").checked');
+  const changeIdx = controlsSrc.indexOf('$("chkAutoPost").addEventListener("change"');
   report(
-    /btnTestComposer[\s\S]*?MSG\.TEST_POST/.test(controls),
-    "Tombol \"Uji Post\" mengirim pesan TEST_POST",
-    /MSG\.TEST_POST/.test(controls) ? "ok" : "OPEN_COMPOSER dipakai"
+    payloadIdx !== -1 && changeIdx !== -1,
+    "Checkbox autoposting dibaca ke payload START_POSTING + handler change terpasang",
+    payloadIdx !== -1 && changeIdx !== -1 ? "ok" : "wiring controls.js tidak lengkap"
   );
-
-  const sw = read("src/background/service-worker.js");
   report(
-    /case MSG\.TEST_POST:[\s\S]*?testPostFirstMaterial\(\)/.test(sw.replace(/\r/g, "")),
-    "Service worker meroute TEST_POST ke scheduler.testPostFirstMaterial",
-    /testPostFirstMaterial/.test(sw) ? "ok" : "route tidak ditemukan"
-  );
-
-  const sched = read("src/background/scheduler.js");
-  report(
-    /async function testPostFirstMaterial[\s\S]*?NAV_HOME_TO_COMPOSER[\s\S]*?EXECUTE_TEST_POST/.test(sched.replace(/\r/g, "")),
-    "Uji Post memakai rantai navigasi terbukti lalu EXECUTE_TEST_POST",
+    /addEventListener\("change"[\s\S]*?STORAGE\.SETTINGS/.test(controlsSrc),
+    "Pilihan autoposting disimpan ke STORAGE.SETTINGS (persisten antar sesi)",
     "ok"
   );
 
-  const content = read("src/content/content.js");
+  const settingsSrc = read("src/dashboard/settings.js");
   report(
-    /MSG\.EXECUTE_TEST_POST[\s\S]*?testCompose\(/.test(content.replace(/\r/g, "")),
-    "Router content script menangani EXECUTE_TEST_POST dengan testCompose()",
+    /chkAutoPost"\)\.checked = s\.autoPost !== false/.test(settingsSrc) &&
+      /autoPost: State\.settings\.autoPost !== false/.test(settingsSrc),
+    "Checkbox dipulihkan dari storage & autoPost tidak hilang saat Simpan Pengaturan",
+    "ok"
+  );
+
+  const sched = read("src/background/scheduler.js").replace(/\r/g, "");
+  report(
+    /const autoPost = run\.settings\.autoPost !== false;[\s\S]*?type: MSG\.EXECUTE_POST,\s*autoPost,/.test(sched),
+    "Scheduler membaca settings.autoPost dan mengirimkannya di EXECUTE_POST",
+    "ok"
+  );
+  report(
+    /"manual \(jendela "[\s\S]*?MANUAL_POST_WINDOW_MS/.test(sched),
+    "Log scheduler membedakan mode autoposting vs manual (jendela 10s)",
+    "ok"
+  );
+
+  const contentSrc = read("src/content/content.js").replace(/\r/g, "");
+  report(
+    /MSG\.EXECUTE_POST[\s\S]*?msg\.autoPost !== false/.test(contentSrc),
+    "Router content script meneruskan msg.autoPost ke postToGroup()",
     "ok"
   );
 
@@ -672,12 +698,16 @@ function checkTestPostWiring() {
   const captionAfter = posting.indexOf("typeCaption(editor, finalText)");
   report(
     uploadFirst !== -1 && captionAfter !== -1 && uploadFirst < captionAfter,
-    "testCompose: uploadMedia DIPANGGUL SEBELUM typeCaption (urutan media dulu)",
+    "postToGroup: uploadMedia DIPANGGIL SEBELUM typeCaption (urutan media dulu)",
     uploadFirst !== -1 && captionAfter !== -1 ? `posisi ${uploadFirst} < ${captionAfter}` : "urutan salah"
   );
+  const manualBranch = posting.indexOf("if (!autoPost) {");
+  const manualWait = posting.indexOf("await sleep(MANUAL_POST_WINDOW_MS);", manualBranch);
+  const submitClick = posting.indexOf("await findPostButton(20000)");
   report(
-    /async function testCompose[\s\S]*?return \{ dialog: info\.dialog/.test(posting),
-    "testCompose berhenti tanpa klik tombol Posting (dry-run)",
+    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick &&
+      /if \(!autoPost\)[\s\S]*?return true;/.test(posting),
+    "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return true SEBELUM klik tombol Posting",
     "ok"
   );
 
@@ -686,16 +716,16 @@ function checkTestPostWiring() {
      uploadMedia sebelum typeCaption), lalu klik tombol Posting dan verifikasi
      composer tertutup (anti false-sukses antrean). */
   const core = posting.indexOf("async function composeMediaAndCaption");
-  const testUse = posting.indexOf("await composeMediaAndCaption(caption");
-  const prodUse = posting.indexOf("await composeMediaAndCaption(caption", testUse + 1);
+  const usedByProd = posting.indexOf("await composeMediaAndCaption(caption");
   report(
-    core !== -1 && testUse !== -1 && prodUse !== -1,
-    "postToGroup & testCompose memakai SATU inti bersama composeMediaAndCaption",
-    core !== -1 && prodUse !== -1 ? "ok" : "inti bersama tidak dipakai"
+    core !== -1 && usedByProd !== -1,
+    "postToGroup memakai inti bersama composeMediaAndCaption (satu jalur media-dulu)",
+    core !== -1 && usedByProd !== -1 ? "ok" : "inti bersama tidak dipakai"
   );
   report(
-    /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
-    "postToGroup: inti media-dulu -> caption -> klik tombol Posting",
+    /async function postToGroup\(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true\)/.test(posting) &&
+      /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
+    "postToGroup(caption, media, autoPost): inti media-dulu -> caption -> klik tombol Posting",
     "ok"
   );
   report(
@@ -774,7 +804,7 @@ function checkScanWiring() {
   checkDashboardScriptOrder();
   checkMsgConstants();
   checkPostingUsesComposerChain();
-  checkTestPostWiring();
+  checkAutoPostWiring();
   checkScanWiring();
   checkParity();
   checkLoadBackground();

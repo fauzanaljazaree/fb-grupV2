@@ -17,7 +17,8 @@
       maxDelay: 300,
       dailyLimit: 20,
       cooldownEvery: 5,
-      cooldownMinutes: 15
+      cooldownMinutes: 15,
+      autoPost: true
     }
   };
 
@@ -65,7 +66,6 @@
     VIEW_FB_TAB: "VIEW_FB_TAB",
     BACK_TO_DASHBOARD: "BACK_TO_DASHBOARD",
     OPEN_COMPOSER: "OPEN_COMPOSER",
-    TEST_POST: "TEST_POST",
     /* dashboard -> background: mulai scan daftar grup (tab sementara) */
     START_SCAN: "START_SCAN",
     /* background -> content script: jalankan scanGroups() di sidebar */
@@ -75,8 +75,7 @@
     EXECUTE_SCRAPE: "EXECUTE_SCRAPE",
     NAV_HOME_TO_GROUP: "NAV_HOME_TO_GROUP",
     NAV_HOME_TO_COMPOSER: "NAV_HOME_TO_COMPOSER",
-    EXECUTE_POST: "EXECUTE_POST",
-    EXECUTE_TEST_POST: "EXECUTE_TEST_POST"
+    EXECUTE_POST: "EXECUTE_POST"
   };
 
   /* ---------------- BATAS OPERASIONAL ---------------- */
@@ -88,7 +87,10 @@
     SCAN_TAB_TIMEOUT_MS: 90000,           /* tunggu tab /groups/feed "complete" */
     SCAN_SETTLE_MS: 2000,                 /* jeda render React FB sebelum scan */
     SCAN_MAX_PASSES: 80,                  /* batas loop scroll sidebar */
-    SCAN_MSG_TIMEOUT_MS: 120000           /* timeout chrome.tabs.sendMessage scan */
+    SCAN_MSG_TIMEOUT_MS: 120000,          /* timeout chrome.tabs.sendMessage scan */
+    /* Mode manual (checkbox "autoposting" TIDAK dicentang): jendela waktu
+       bagi user untuk klik tombol Posting sendiri sebelum alur lanjut. */
+    MANUAL_POST_WINDOW_MS: 10000
   };
 
   /* ---------------- DAFTAR FILE CONTENT SCRIPT ----------------

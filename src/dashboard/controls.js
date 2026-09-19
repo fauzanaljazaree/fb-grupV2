@@ -116,7 +116,7 @@
           mediaMime: m.mediaMime || "application/octet-stream"
         })),
         groups: targetGroups.map((g) => ({ name: g.name, url: g.url })),
-        settings: { ...State.settings, showFbTab: $("chkShowFb").checked }
+        settings: { ...State.settings, showFbTab: $("chkShowFb").checked, autoPost: $("chkAutoPost").checked }
       }
     });
     if (res && res.ok) {
@@ -157,21 +157,20 @@
     if (!res || !res.ok) addLog(`Gagal membuka tab FB: ${(res && res.error) || "unknown"}`, "err");
   });
 
-  /* ------- Uji workflow lengkap: navigasi -> composer -> MEDIA DULU (GATE
-     preview blob) -> caption Lexical anti-dobel -> STOP tanpa submit. -------
-     Materi diambil dari materi pertama yang media-nya tersedia. Tab FB
-     difokuskan dulu oleh background supaya langkahnya terlihat. */
-  $("btnTestComposer").addEventListener("click", async () => {
-    addLog("Uji Post: navigasi -> buka composer -> upload media (GATE) -> tulis caption (tanpa submit)...", "info");
-    const res = await sendMsg({ type: MSG.TEST_POST });
-    if (res && res.ok) {
-      addLog(
-        `Uji Post sukses di ${res.groupName || "(tanpa nama)"} — preview media ter-render & caption terisi. Tombol Posting TIDAK diklik; periksa composer di tab FB.`,
-        "ok"
-      );
-    } else {
-      addLog(`Uji Post gagal: ${(res && res.error) || "unknown"}`, "err");
-    }
+  /* ------- Checkbox "autoposting" (menggantikan tombol "Uji Post") -------
+     checked   -> content script klik tombol Posting otomatis + verifikasi.
+     unchecked -> content script berhenti setelah media+caption terisi,
+                  memberi user jendela MANUAL_POST_WINDOW_MS untuk klik
+                  Posting sendiri; setelah jendela habis alur tetap lanjut.
+     Nilai disimpan ke STORAGE.SETTINGS supaya ikut terkirim sebagai
+     payload.settings saat "Mulai Posting" ditekan. */
+  $("chkAutoPost").addEventListener("change", async (e) => {
+    const auto = e.target.checked;
+    State.settings.autoPost = auto;
+    await setStrict({ [STORAGE.SETTINGS]: { ...State.settings, autoPost: auto } }).catch(() => {});
+    addLog(auto
+      ? "Autoposting AKTIF: tombol Posting diklik otomatis setiap langkah."
+      : "Autoposting NONAKTIF: media+caption disiapkan, lalu 10 detik untuk klik Posting sendiri — setelah itu antrean lanjut.", "info");
   });
 
   /* ---------------- EVENT REALTIME DARI BACKGROUND ---------------- */

@@ -62,7 +62,8 @@
     return true;
   }
 
-  /** Upload media via input[type=file] + GATE preview (workflow uji post).
+  /** Upload media via input[type=file] + GATE preview (workflow posting:
+      media DULU sebelum caption, karena Lexical re-render menghapus caption).
       mediaDataUrl dikirim sebagai dataURL base64 dari background/dashboard,
       dikonversi ke File di sini (File tidak bisa lewat chrome messaging). */
   async function uploadMedia(dialog, mediaDataUrl, mediaMime, mediaName) {

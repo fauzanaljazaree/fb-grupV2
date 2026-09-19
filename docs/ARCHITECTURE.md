@@ -54,9 +54,7 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `PING`                         | background → content   | –                                             | Cek content script terpasang (`{ok:true,pong:true}`)                                                                                                                                                                                                  |
 | `NAV_HOME_TO_GROUP`            | background → content   | –                                             | Navigasi natural, balas `{groupUrl, groupName}`                                                                                                                                                                                                       |
 | `NAV_HOME_TO_COMPOSER`         | background → content   | –                                             | Navigasi natural + buka composer, balas `{groupUrl, groupName, url}`                                                                                                                                                                                  |
-| `EXECUTE_POST`                 | background → content   | `caption, mediaDataUrl, mediaMime, mediaName` | `postToGroup()`: inti media-dulu+caption → klik Posting → verifikasi composer tertutup, balas `{ok, error}`                                                                                                                                           |
-| `TEST_POST`                    | dashboard → background | –                                             | Uji workflow penuh: navigasi + materi pertama ber-media + `EXECUTE_TEST_POST`, balas `{ok, dialog, editorText, error?}`                                                                                                                               |
-| `EXECUTE_TEST_POST`            | background → content   | `caption, mediaDataUrl, mediaMime, mediaName` | `testCompose()`: uploadMedia DULU (GATE preview blob) → query editor ulang → `typeCaption()` anti-dobel → STOP tanpa klik Posting, balas `{ok, dialog, editorText}`                                                                                   |
+| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName` | `postToGroup()`: inti media-dulu+caption → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, error}`                                                                                                    |
 | `EXECUTE_SCRAPE`               | background → content   | –                                             | Scraper daftar grup mode lama (scroll window)                                                                                                                                                                                                         |
 | `START_SCAN`                   | dashboard → background | –                                             | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js` |
 | `SCAN_GROUPS`                  | background → content   | –                                             | `scanGroups()`: loop scroll sidebar (maks 80 pass) + kumpulkan `a[href*="/groups/"]`, balas `{ok, sourceUrl, scannedAt, groups}`                                                                                                                      |
@@ -77,7 +75,7 @@ tidak ada tipe pesan lama yang hilang.
 
 | Kunci                       | Isi                                                                                                                                          | Ditulis oleh                                           |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `settings`                  | `{minDelay,maxDelay,dailyLimit,cooldownEvery,cooldownMinutes}`                                                                               | dashboard (settings), background (startPosting)        |
+| `settings`                  | `{minDelay,maxDelay,dailyLimit,cooldownEvery,cooldownMinutes,autoPost}`                                                                      | dashboard (settings, controls), background (startPosting) |
 | `materials`                 | daftar materi `{caption,mediaName,available,mediaDataUrl,mediaMime}`                                                                         | dashboard, background                                  |
 | `queue` / `cursor`          | indeks materi & posisi berjalan                                                                                                              | background (scheduler)                                 |
 | `stats`                     | `{"YYYY-MM-DD": jumlah}` untuk batas harian                                                                                                  | background (scheduler)                                 |
@@ -96,8 +94,8 @@ dashboard btnStart --START_POSTING--> background.startPosting()
                                    scheduleNext(6-14s) -> chrome.alarms "post-tick"
                                          v
   onAlarm --------------------> processNextPost()
-    | (sekali) ensurePostTab(FB_HOME) -> NAV_HOME_TO_GROUP -> run.groupUrl
-    | (tiap materi) ensurePostTab(groupUrl) -> EXECUTE_POST -> hasil
+    | (tiap langkah) ensurePostTab(FB_HOME) -> NAV_HOME_TO_COMPOSER(targetGroupUrl)
+    |               -> ensurePostTab(groupUrl) -> EXECUTE_POST(autoPost) -> hasil
     | stats++, cursor++, broadcastQueueInfo()
     | cooldown bila postsSinceCooldown >= cooldownEvery
     v
@@ -108,7 +106,11 @@ dashboard btnStart --START_POSTING--> background.startPosting()
 
 Semua langkah browser memakai satu tab FB biasa (unpinned) yang dipakai ulang. Fokus tab
 hanya berpindah bila `ui.showFbTab` aktif; setelah tiap posting fokus kembali ke
-dashboard.
+dashboard. Bila `settings.autoPost` **tidak aktif**, langkah `EXECUTE_POST`
+berhenti setelah media+caption terisi dan menunggu `MANUAL_POST_WINDOW_MS`
+(10 detik) untuk klik Posting oleh user; setelah jendela itu antrean lanjut
+tanpa memeriksa hasil klik (tetap dihitung 1 posting), jadi mode manual
+membutuhkan tab FB terlihat agar user bisa mengklik.
 
 ## 6. Tanggung Jawab Modul
 
@@ -130,13 +132,13 @@ dashboard.
 | `content/media.js`        | data URL → File → input upload                                                                         | —                          |
 | `content/navigation.js`   | alur home → grup                                                                                       | posting                    |
 | `content/scraper.js`      | scraper grup                                                                                           | posting                    |
-| `content/posting.js`      | `openComposer()` (buka composer) + eksekusi posting (termasuk flag DRY RUN)                            | navigasi                   |
+| `content/posting.js`      | `openComposer()` (buka composer) + eksekusi posting (mode autoposting/manual via parameter `autoPost`)  | navigasi                   |
 | `dashboard/state.js`      | state UI                                                                                               | DOM                        |
 | `dashboard/ui.js`         | `$`, `escapeHtml`, `addLog`, `setStatus`                                                               | data                       |
 | `dashboard/materials.js`  | import materi & media                                                                                  | kontrol running            |
 | `dashboard/settings.js`   | form pengaturan                                                                                        | antrean                    |
 | `dashboard/groups.js`     | tabel & pencarian grup                                                                                 | antrean                    |
-| `dashboard/controls.js`   | tombol start/stop, uji buka composer, `syncStatus` awal, tab FB, event realtime                        | render tabel               |
+| `dashboard/controls.js`   | tombol start/stop, checkbox autoposting, uji buka composer, `syncStatus` awal, tab FB, event realtime   | render tabel               |
 | `dashboard/main.js`       | init + catch error global                                                                              | logika fitur               |
 
 ## 7. Checklist Menambah / Mengubah Modul
@@ -154,22 +156,44 @@ dashboard.
 
 ## 8. Keputusan Desain Penting
 
-- **Workflow "Uji Post" & produksi = SATU inti bersama: media DULU, baru
-  caption (GATE blob).** Temuan lapangan: attach media me-`re-render` composer
-  Lexical sehingga caption yang diketik SEBELUM media ikut terhapus.
-  `composeMediaAndCaption()` (`src/content/posting.js`) karena itu memaksa
-  urutan `openComposer() → uploadMedia() → GATE preview blob (`video[blob]
-  readyState>=2`/`img[blob]`baru muncul) → query editor ulang (scope preview
-media dulu, lalu dialog, lalu document) →`typeCaption()`. Dipakai dua jalur:
-`testCompose()`(tombol "Uji Post" — STOP tanpa submit) dan`postToGroup()`(tombol "Mulai Posting" — lanjut klik tombol Posting + **verifikasi
-pasca-submit**: composer & preview media harus hilang; bila tidak, klik
-diulang sekali lalu throw agar scheduler mencatat GAGAL, antrean tidak maju
-palsu). Selektor hanya`role`/`aria-label`/`aria-placeholder`(tanpa class`x…`FB); dialog composer asli dicari dari ISI (editor di dalamnya), bukan
-dari`aria-label`— dialog berlabel "Buat postingan" hanya kotak judul
-kosong. Ketik per-baris memakai`execCommand("insertText")`+ fallback paste,
-verifikasi pertumbuhan teks ASYNC, dan anti-dobel (bersihkan & ketik ulang
-sekali bila teks terduplikasi).`uploadMedia()`punya fallback jalur lama`attachMedia()`bila konversi`fetch(dataURL)`gagal. Timeout`EXECUTE_POST`150s (upload + GATE 20s + caption + submit untuk materi besar). Dijaga check`checkTestPostWiring()`di`tools/verify.js`(urutan`uploadMedia`<`typeCaption`, satu inti bersama, verifikasi pasca-submit, tanpa submit di
-  jalur uji).
+- **Workflow posting = SATU inti bersama: media DULU, baru caption (GATE blob),
+  dengan saklar mode "autoposting".** Temuan lapangan: attach media
+  me-`re-render` composer Lexical sehingga caption yang diketik SEBELUM media
+  ikut terhapus. `composeMediaAndCaption()` (`src/content/posting.js`) karena itu
+  memaksa urutan `openComposer() → uploadMedia() → GATE preview blob
+  (`video[blob] readyState>=2`/`img[blob]` baru muncul) → query editor ulang
+  (scope preview media dulu, lalu dialog, lalu document) → `typeCaption()`.
+  Setelah itu `postToGroup(caption, media…, autoPost)` bercabang:
+  - `autoPost === true` (checkbox **autoposting** dicentang, default): klik
+    tombol Posting + **verifikasi pasca-submit** (composer & preview media harus
+    hilang; bila tidak, klik diulang sekali lalu throw agar scheduler mencatat
+    GAGAL, antrean tidak maju palsu).
+  - `autoPost === false`: STOP setelah media+caption terisi, tunggu
+    `LIMITS.MANUAL_POST_WINDOW_MS` (10 detik) memberi user kesempatan klik
+    Posting sendiri, lalu `return true` **tanpa memedulikan** apakah user
+    mengklik atau tidak — hasilnya tetap dihitung 1 posting sukses oleh
+    scheduler (cursor maju, statistik harian +1) agar loop tidak macet.
+  Selektor hanya `role`/`aria-label`/`aria-placeholder` (tanpa class `x…` FB);
+  dialog composer asli dicari dari ISI (editor di dalamnya), bukan dari
+  `aria-label` — dialog berlabel "Buat postingan" hanya kotak judul kosong.
+  Ketik per-baris memakai `execCommand("insertText")` + fallback paste,
+  verifikasi pertumbuhan teks ASYNC, dan anti-dobel (bersihkan & ketik ulang
+  sekali bila teks terduplikasi). `uploadMedia()` punya fallback jalur lama
+  `attachMedia()` bila konversi `fetch(dataURL)` gagal. Timeout `EXECUTE_POST`
+  150s (upload + GATE 20s + caption + submit/manual-window untuk materi besar).
+  Dijaga check `checkAutoPostWiring()` di `tools/verify.js` (urutan
+  `uploadMedia` < `typeCaption`, cabang manual sebelum `findPostButton`, satu
+  inti bersama, verifikasi pasca-submit pada mode autoposting).
+- **Tombol "Uji Post" & pesan `TEST_POST`/`EXECUTE_TEST_POST` dihapus.** Perannya
+  digantikan checkbox "autoposting": mode manual (`autoPost:false`) persis
+  melakukan apa yang dulu dilakukan tombol uji (media+caption terisi, tanpa
+  submit) tetapi kini menjadi bagian alur produksi, bukan jalur uji terpisah —
+  sehingga tidak ada dua jalur media-dulu yang harus dijaga sinkron.
+- **Nilai `autoPost` per sesi.** Dibaca sekali di `startPosting()` dari
+  `payload.settings.autoPost` (checkbox dikirim saat **Mulai Posting**), lalu
+  dipakai setiap langkah `processNextPost()`. Toggle checkbox saat sesi berjalan
+  hanya tersimpan di storage untuk sesi berikutnya — perilaku per-sesi ini
+  disengaja agar antrean tetap prediktabel.
 
 - **Dua varian penulis storage.** `storage.set()` tidak pernah reject (dipakai alur
   kritis posting, sesuai perilaku lama background) sedangkan `storage.setStrict()`
@@ -211,9 +235,12 @@ sekali bila teks terduplikasi).`uploadMedia()`punya fallback jalur lama`attachMe
 
 ## 9. Verifikasi Otomatis
 
-`node tools/verify.js` menjalankan 30 pemeriksaan: sintaks, kode mati,
+`node tools/verify.js` menjalankan 56 pemeriksaan: sintaks, kode mati,
 id DOM dashboard ↔ HTML, sinkronisasi manifest, urutan `<script>`, konstanta
-pesan, paritas nama fungsi & literal tipe pesan terhadap snapshot
+pesan, wiring checkbox **autoposting** (HTML → `controls.js` → `payload.settings`
+→ scheduler → `EXECUTE_POST.autoPost` → `postToGroup()`: cabang manual menunggu
+`LIMITS.MANUAL_POST_WINDOW_MS` sebelum `findPostButton`, jadi mode manual tidak
+mungkin men-submit), paritas nama fungsi & literal tipe pesan terhadap snapshot
 `backups/pre-refactor/`, smoke test pemuatan modul (vm + stub `chrome` dan
 `document`) untuk ketiga konteks, pemulihan status basi (`GET_STATUS`
 mereset sesi yang sudah mati sehingga tombol **Mulai Posting** tetap bisa diklik),

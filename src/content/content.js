@@ -15,7 +15,7 @@
   const { MSG } = FBAP.config;
   const { scrapeGroups, scanGroups } = content.scraper;
   const { navHomeToGroup } = content.navigation;
-  const { postToGroup, openComposer, testCompose } = content.posting;
+  const { postToGroup, openComposer } = content.posting;
 
   /* Lindungi dari injeksi ganda (manifest + fallback executeScript)
      supaya router tidak terpasang dua kali dan sendResponse tidak
@@ -47,13 +47,11 @@
           await openComposer(25000);
           sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
         } else if (msg.type === MSG.EXECUTE_POST) {
-          const ok = await postToGroup(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName);
+          /* msg.autoPost = checkbox "autoposting" dashboard. false ->
+             postToGroup hanya menyiapkan media+caption lalu menunggu
+             jendela manual (MANUAL_POST_WINDOW_MS) tanpa klik Posting. */
+          const ok = await postToGroup(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName, msg.autoPost !== false);
           sendResponse({ ok, error: ok ? null : "Posting gagal" });
-        } else if (msg.type === MSG.EXECUTE_TEST_POST) {
-          /* Uji workflow: composer -> media DULU + GATE -> caption -> stop.
-             Tidak pernah klik tombol Posting. */
-          const info = await testCompose(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName);
-          sendResponse({ ok: true, ...info });
         } else if (msg.type === MSG.PING) {
           sendResponse({ ok: true, pong: true });
         } else {

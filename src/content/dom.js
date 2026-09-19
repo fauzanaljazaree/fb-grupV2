@@ -91,7 +91,7 @@
     throw new Error(`Timeout menunggu ${label} (${timeoutMs}ms)`);
   }
 
-  /* ---------- PENCARI DIALOG COMPOSER & SCOPE MEDIA (uji post) ---------- */
+  /* ---------- PENCARI DIALOG COMPOSER & SCOPE MEDIA (workflow posting) ---------- */
 
   /** Dialog composer ASLI: dicari dari ISI (editor), bukan aria-label.
       Temuan lapangan: composer asli = div[role="dialog"] TANPA label;

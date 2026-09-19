@@ -57,7 +57,15 @@ fbGrup-AutoPosting/
 2. **Load unpacked** → pilih folder proyek ini (folder yang berisi `manifest.json`).
 3. Klik ikon ekstensi untuk membuka dashboard.
 4. Import materi (Excel/CSV kolom `Caption` & `Media_Name`), pilih folder media,
-   lalu tekan **Mulai Posting**.
+   lalu tekan **Mulai Posting**. Checkbox **autoposting** di toolbar menentukan
+   cara submit setiap langkah:
+   - **dicentang (default)** — tombol Posting diklik otomatis, lalu hasilnya
+     diverifikasi (composer harus tertutup).
+   - **tidak dicentang** — program hanya memuat media + menulis caption, lalu
+     memberi Anda 10 detik untuk mengklik tombol Posting sendiri di tab FB.
+     Setelah 10 detik (diklik atau tidak) antrean otomatis lanjut ke langkah
+     berikutnya, jadi jangan lupa centang **Tampilkan tab FB saat posting**
+     (default: dicentang) bila memakai mode manual.
 5. Untuk memastikan jalur navigasi (dan login FB) sehat tanpa memposting apa pun,
    klik **🧪 Uji Buka Composer**: background membuka homepage FB, mengklik menu
    **Grup** di sidebar, memilih grup teratas, lalu membuka composer grup tersebut.
@@ -83,9 +91,10 @@ fbGrup-AutoPosting/
 node tools/verify.js
 ```
 
-Memeriksa (30 check): sintaks semua file JS, kode mati, konsistensi id DOM
+Memeriksa (56 check): sintaks semua file JS, kode mati, konsistensi id DOM
 dashboard, sinkronisasi `manifest.json` ↔ `FBAP.config.CONTENT_SCRIPT_FILES`,
-urutan `<script>` dashboard, konstanta pesan, paritas nama fungsi & tipe pesan
+urutan `<script>` dashboard, konstanta pesan, wiring checkbox **autoposting**
+(mode auto vs manual 10 detik), paritas nama fungsi & tipe pesan
 dengan versi sebelum refactor (`backups/pre-refactor/`), smoke test pemuatan
 seluruh modul memakai `vm` + stub `chrome`/`document`, pemulihan status
 basi (tombol **Mulai Posting** tidak terkunci oleh sesi lama), serta uji rantai
