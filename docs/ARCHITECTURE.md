@@ -183,9 +183,14 @@ lalu document) → `typeCaption()`.
 
   Editor WAJIB berada di dalam dialog composer (`isInComposerDialog`).
   Editor komentar di feed juga `contenteditable` + `data-lexical-editor`,
-  sehingga pencarian document-wide dilarang — `findEditor()` dan pencarian
-  editor pasca-media hanya menerima editor yang `closest('div[role="dialog"]')`
-  -nya visible dan berisi editor. Tidak ada fallback document-wide: bila tidak
+  dan dialog pop-up KOMENTAR (editor `aria-placeholder`/`aria-label`
+  "Balas sebagai…" / "Reply as…") juga visible + berisi editor — sehingga
+  `isCommentEditor()` menolak editor semacam itu SEBELUM cek dialog, dan
+  `findComposerDialog()` hanya menerima dialog yang punya editor composer
+  non-komentar. Pencarian document-wide dilarang — `findEditor()` dan
+  pencarian editor pasca-media hanya menerima editor yang
+  `closest('div[role="dialog"]')`-nya visible dan lolos
+  `dialogHasComposerEditor`. Tidak ada fallback document-wide: bila tidak
   ketemu, langkah GAGAL (jangan pernah mengetik ke kolom komentar).
   Setelah itu `postToGroup(caption, media…, autoPost)` bercabang:
   - `autoPost === true` (checkbox **autoposting** dicentang, default): klik

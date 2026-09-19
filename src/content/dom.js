@@ -93,15 +93,34 @@
 
   /* ---------- PENCARI DIALOG COMPOSER & SCOPE MEDIA (workflow posting) ---------- */
 
+  /** Editor komentar/balas (BUKAN composer). Ciri: aria-placeholder atau
+      aria-label berisi "Balas sebagai…", "Reply as…", "komentar". Editor
+      ini juga contenteditable + data-lexical-editor dan bisa berada di
+      dialog pop-up komentar — wajib ditolak dari jalur composer. */
+  const COMMENT_EDITOR_RE = /(balas|reply|komentar|comment)/i;
+  function isCommentEditor(el) {
+    if (!el || !el.getAttribute) return false;
+    const fp = el.getAttribute("aria-placeholder") || "";
+    const al = el.getAttribute("aria-label") || "";
+    return COMMENT_EDITOR_RE.test(fp) || COMMENT_EDITOR_RE.test(al);
+  }
+
+  /** Dialog punya editor composer (ketat/Lexical) yang BUKAN editor komentar? */
+  function dialogHasComposerEditor(d) {
+    const cands = d.querySelectorAll(CAPTION_EDITOR + "," + CAPTION_EDITOR_LEXICAL);
+    for (const el of cands) if (!isCommentEditor(el)) return true;
+    return false;
+  }
+
   /** Dialog composer ASLI: dicari dari ISI (editor), bukan aria-label.
       Setelah media dilampirkan, aria-placeholder editor bisa berubah/hilang,
       jadi filter menerima editor ketat ATAU Lexical (data-lexical-editor).
-      Fallback loose: dialog berisi editor contenteditable + teks
+      Dialog yang hanya berisi editor komentar (pop-up "Balas sebagai…")
+      DITOLAK. Fallback loose: dialog berisi editor contenteditable + teks
       "Tambahkan grup" (aman untuk locale EN). */
   function findComposerDialog() {
     const dialogs = Array.from(document.querySelectorAll('div[role="dialog"]'));
-    const hasEditor = (d) => d.querySelector(CAPTION_EDITOR) || d.querySelector(CAPTION_EDITOR_LEXICAL);
-    const withEditor = dialogs.filter(hasEditor);
+    const withEditor = dialogs.filter(dialogHasComposerEditor);
     if (withEditor.length) return withEditor.find(isElementVisible) || withEditor[0];
     const loose = dialogs.filter((d) => d.querySelector(CAPTION_EDITOR_LOOSE) && Array.from(d.querySelectorAll("span")).some((s) => (s.textContent || "").trim() === "Tambahkan grup"));
     if (loose.length) return loose.find(isElementVisible) || loose[0];
@@ -146,11 +165,14 @@
   }
 
   /** Editor harus berada DI DALAM dialog composer (bukan editor komentar
-      di feed — keduanya sama-sama contenteditable + data-lexical-editor). */
+      di feed maupun di dialog pop-up komentar — ketiganya sama-sama
+      contenteditable + data-lexical-editor). Editor komentar
+      ("Balas sebagai…") ditolak lebih dulu. */
   function isInComposerDialog(el) {
     if (!el || typeof el.closest !== "function") return false;
+    if (isCommentEditor(el)) return false;
     const d = el.closest('div[role="dialog"]');
-    return !!(d && isElementVisible(d) && d.querySelector('div[contenteditable="true"]'));
+    return !!(d && isElementVisible(d) && dialogHasComposerEditor(d));
   }
 
   /** Cari editor caption composer. WAJIB di dalam dialog composer supaya
