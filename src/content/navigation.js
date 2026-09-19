@@ -30,12 +30,7 @@
   const { humanScrollToEl, humanScrollSidebar } = content.stealth;
 
   /** Kata kunci heading daftar grup (ID & EN). Terbukti cocok di DOM nyata. */
-  const JOINED_HEADING_KW = [
-    "grup yang anda bergabung",
-    "groups you've joined",
-    "groups you joined",
-    "grup yang anda ikuti"
-  ];
+  const JOINED_HEADING_KW = ["grup yang anda bergabung", "groups you've joined", "groups you joined", "grup yang anda ikuti"];
 
   /** Sama dengan Node.DOCUMENT_POSITION_FOLLOWING (dipisah agar mudah diuji). */
   const DOC_POSITION_FOLLOWING = 4;
@@ -56,8 +51,7 @@
     for (const a of anchors) {
       const valid = isGroupLink(a);
       if (!valid) continue;
-      if (heading.compareDocumentPosition &&
-          !(heading.compareDocumentPosition(valid) & DOC_POSITION_FOLLOWING)) continue;
+      if (heading.compareDocumentPosition && !(heading.compareDocumentPosition(valid) & DOC_POSITION_FOLLOWING)) continue;
       return valid;
     }
     return null;
@@ -99,9 +93,7 @@
         if (!JOINED_HEADING_KW.some((k) => t.includes(k))) continue;
         /* Urutan percobaan: urutan dokumen (layout sekarang) -> ancestor
            (layout lama) -> seluruh sidebar (jaring pengaman). */
-        const found = firstGroupAfter(headings[i], root) ||
-                      firstGroupInAncestors(headings[i]) ||
-                      firstGroupInSidebar(root);
+        const found = firstGroupAfter(headings[i], root) || firstGroupInAncestors(headings[i]) || firstGroupInSidebar(root);
         if (found) return found;
       }
       await sleep(500);
@@ -124,8 +116,7 @@
     await waitForUrlContains("/groups/", 15000);
 
     // Step 3: cari sidebar "Daftar Grup"
-    const sidebar = (await waitForSelector(SIDEBAR_NAV, 8000)) ||
-                    (await waitForSelector(SIDEBAR_NAV_EN, 8000));
+    const sidebar = (await waitForSelector(SIDEBAR_NAV, 8000)) || (await waitForSelector(SIDEBAR_NAV_EN, 8000));
     if (!sidebar) throw new Error("Sidebar 'Daftar Grup' tidak ditemukan.");
 
     // Scroll sidebar sebentar (simulasi baca)
@@ -144,34 +135,79 @@
     await humanScrollToEl(groupEl);
     const groupUrl = normalizeUrl(groupEl.getAttribute("href"));
     const scraper = (content && content.scraper) || {};
-    const groupName = typeof scraper.extractGroupName === "function"
-      ? scraper.extractGroupName(groupEl)
-      : (groupEl.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
+    const groupName = typeof scraper.extractGroupName === "function" ? scraper.extractGroupName(groupEl) : (groupEl.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
     groupEl.click();
     await sleep(randInt(1200, 2400));
     return { groupUrl: groupUrl || location.href, groupName };
   }
 
+  /** Expand bagian collapsible "Lihat selengkapnya" di sidebar (grup target
+      sering tersembunyi di baliknya). Aman dipanggil berulang. */
+  function expandSidebarSeeMore(scope) {
+    const KW = ["lihat selengkapnya", "see more", "tampilkan lebih", "show more"];
+    const nodes = (scope || document).querySelectorAll('div[role="button"], span, a');
+    for (const n of nodes) {
+      const t = (n.textContent || "").trim().toLowerCase();
+      if (!t || t.length > 60) continue;
+      if (!KW.some((k) => t === k || t.startsWith(k))) continue;
+      const r = n.getBoundingClientRect ? n.getBoundingClientRect() : null;
+      if (r && r.width < 2) continue;
+      try {
+        n.click();
+      } catch (e) {
+        /* abaikan */
+      }
+    }
+  }
+
   /** Cari anchor grup yang URL kanonisnya sama dengan target.
-      Sidebar FB memakai lazy-render: scroll bertahap sampai 25x,
-      tiap pass cek semua anchor; cocok = normalizeUrl sama persis. */
+      Sidebar /groups/feed di-render GRID dua kolom + lazy-render + collapsible
+      "Lihat selengkapnya": scroll kecil +500px sering tidak memicu load.
+      Strategi: auto-detect scroller sebenarnya (findSidebar), expand
+      collapsible, lalu scroll langkah signifikan (scrollStep) sampai ketemu
+      atau mentok bawah. */
   async function findGroupByUrl(sidebar, targetUrl) {
     const want = normalizeUrl(targetUrl);
     if (!want) return null;
-    const scroller = sidebar.querySelector("[data-visualcompletion]") || sidebar;
-    for (let pass = 0; pass < 25; pass++) {
-      const anchors = sidebar.querySelectorAll('a[role="link"][href*="/groups/"]');
+    const scraper = (content && content.scraper) || {};
+    const scroller = (typeof scraper.findSidebar === "function" ? scraper.findSidebar() : null) || sidebar;
+    const step =
+      typeof scraper.scrollStep === "function"
+        ? scraper.scrollStep
+        : (s) => {
+            try {
+              s.scrollTop = (s.scrollTop || 0) + 500;
+              s.dispatchEvent(new Event("scroll", { bubbles: true }));
+            } catch (e) {}
+          };
+    let lastTop = -1;
+    let stuck = 0;
+    for (let pass = 0; pass < 40; pass++) {
+      expandSidebarSeeMore(scroller);
+      const anchors = document.querySelectorAll('a[role="link"][href*="/groups/"]');
       for (const a of anchors) {
         if (!isGroupLink(a)) continue;
         if (normalizeUrl(a.getAttribute("href")) === want) return a;
       }
-      /* Belum ketemu: scroll ke bawah sedikit lalu jeda render. */
-      try {
-        scroller.scrollTop = scroller.scrollTop + 500;
-        scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-      } catch (e) { /* abaikan */ }
-      await humanScrollSidebar(sidebar);
-      await sleep(600);
+      /* Belum ketemu: scroll langkah signifikan lalu jeda render. */
+      step(scroller);
+      await sleep(700);
+      const top = scroller.scrollTop || 0;
+      const reachedBottom = top + (scroller.clientHeight || 0) >= (scroller.scrollHeight || 0) - 8;
+      if (top <= lastTop + 2) stuck++;
+      else stuck = 0;
+      lastTop = top;
+      if (reachedBottom || stuck >= 3) {
+        /* Sekali lagi expand + cek setelah mentok, lalu menyerah. */
+        expandSidebarSeeMore(scroller);
+        await sleep(600);
+        const again = document.querySelectorAll('a[role="link"][href*="/groups/"]');
+        for (const a of again) {
+          if (!isGroupLink(a)) continue;
+          if (normalizeUrl(a.getAttribute("href")) === want) return a;
+        }
+        if (reachedBottom && stuck >= 3) break;
+      }
     }
     return null;
   }

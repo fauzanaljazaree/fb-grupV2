@@ -257,6 +257,18 @@ lalu document) → `typeCaption()`.
   pertama di seluruh sidebar. Harness `tools/verify.js` meniru struktur ini
   (cabang ancestor heading sengaja kosong) agar check hanya bisa lulus lewat
   strategi urutan dokumen.
+- **Pencarian grup TARGET (`findGroupByUrl`) wajib memicu lazy-render
+  sidebar.** Sidebar `/groups/feed/` di-render grid dua kolom dengan
+  lazy-render + collapsible "Lihat selengkapnya" — scroll kecil `+500px`
+  pada `[data-visualcompletion]` sering bukan scroller sebenarnya sehingga
+  grup target tidak pernah termuat (loop ke-2+ gagal menemukannya).
+  `findGroupByUrl()` memakai `scraper.findSidebar()` (auto-detect container
+  scroll: overflowY + scrollHeight > clientHeight + memuat anchor /groups/),
+  meng-expand collapsible "Lihat selengkapnya", lalu scroll langkah signifikan
+  `scraper.scrollStep()` (75% clientHeight + event scroll sintetis) hingga
+  ketemu / mentok bawah (berhenti setelah 3 pass tanpa gerak). Pencarian
+  anchor dilakukan document-wide karena lazy-render bisa menempatkan anchor
+  di luar sub-tree sidebar yang lama.
 
 ## 9. Verifikasi Otomatis
 
