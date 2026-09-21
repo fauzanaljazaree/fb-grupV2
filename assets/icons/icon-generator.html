@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>FB Auto Poster - Icon Generator</title>
+    <style>
+      :root {
+        --bg: #0f1117;
+        --panel: #1a1d27;
+        --border: #2c3142;
+        --text: #e6e9f0;
+        --muted: #8a91a5;
+        --accent: #3b82f6;
+        --green: #22c55e;
+      }
+      * { box-sizing: border-box; margin: 0; padding: 0; }
+      body {
+        font-family: "Segoe UI", system-ui, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        min-height: 100vh;
+        padding: 24px;
+      }
+      h1 { font-size: 20px; margin-bottom: 4px; }
+      .sub { color: var(--muted); font-size: 13px; margin-bottom: 20px; }
+      .card {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 12px;
+        padding: 20px;
+        max-width: 760px;
+      }
+      canvas {
+        border: 1px solid var(--border);
+        border-radius: 8px;
+        background: repeating-conic-gradient(#232734 0% 25%, #1a1d27 0% 50%) 0 / 20px 20px;
+        image-rendering: pixelated;
+      }
+      .row { display: flex; gap: 16px; align-items: center; flex-wrap: wrap; margin-bottom: 16px; }
+      .sizes { display: flex; gap: 16px; align-items: flex-end; }
+      .sizes figure { text-align: center; }
+      .sizes figcaption { font-size: 11px; color: var(--muted); margin-top: 4px; }
+      canvas.s16 { width: 16px; height: 16px; }
+      canvas.s32 { width: 32px; height: 32px; }
+      canvas.s48 { width: 48px; height: 48px; }
+      canvas.s128 { width: 128px; height: 128px; }
+      button {
+        background: var(--accent);
+        color: #fff;
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 18px;
+        font-size: 14px;
+        font-weight: 600;
+        cursor: pointer;
+      }
+      button:hover { filter: brightness(1.1); }
+      button.all { background: var(--green); }
+      .note { color: var(--muted); font-size: 12.5px; margin-top: 14px; line-height: 1.6; }
+    </style>
+  </head>
+  <body>
+    <h1>🎨 Icon Generator — FB Auto Poster</h1>
+    <p class="sub">Canvas 128×128 → export PNG 16 / 32 / 48 / 128 untuk manifest.json.</p>
+
+    <div class="card">
+      <div class="row">
+        <div class="sizes">
+          <figure><canvas class="s16"  width="128" height="128"></canvas><figcaption>16px</figcaption></figure>
+          <figure><canvas class="s32"  width="128" height="128"></canvas><figcaption>32px</figcaption></figure>
+          <figure><canvas class="s48"  width="128" height="128"></canvas><figcaption>48px</figcaption></figure>
+          <figure><canvas class="s128" width="128" height="128"></canvas><figcaption>128px</figcaption></figure>
+        </div>
+      </div>
+      <div class="row">
+        <button class="all" id="btnDownloadAll">⬇️ Download Semua (16/32/48/128)</button>
+      </div>
+      <p class="note">
+        Simpan hasil download ke <code>assets/icons/</code> (icon16.png, icon32.png, icon48.png,
+        icon128.png), lalu daftarkan di <code>manifest.json</code> (<code>"icons"</code> +
+        <code>"action.default_icon"</code>) dan jalankan <code>node tools/verify.js</code>.
+        Desain: rocket (tombol "🚀 Mulai Posting") di atas latar gradien biru–ungu
+        yang sama dengan header dashboard.
+      </p>
+    </div>
+
+    <script>
+      "use strict";
+
+      var SIZES = [16, 32, 48, 128];
+      var canvases = {};
+
+      /* Gambar icon pada konteks ukuran `size` (koordinat diskalakan dari 128). */
+      function drawIcon(ctx, size) {
+        ctx.clearRect(0, 0, size, size);
+        ctx.save();
+
+        // Latar: rounded square + gradien biru→ungu (header dashboard)
+        var g = ctx.createLinearGradient(0, 0, size, size);
+        g.addColorStop(0, "#3b82f6");
+        g.addColorStop(1, "#7c3aed");
+        var r = size * 0.2;
+        roundedRect(ctx, 0, 0, size, size, r);
+        ctx.fillStyle = g;
+        ctx.fill();
+        ctx.clip();
+
+        // Glow lembut di kiri-atas
+        var glow = ctx.createRadialGradient(size * 0.3, size * 0.25, 0, size * 0.3, size * 0.25, size * 0.7);
+        glow.addColorStop(0, "rgba(255,255,255,0.25)");
+        glow.addColorStop(1, "rgba(255,255,255,0)");
+        ctx.fillStyle = glow;
+        ctx.fillRect(0, 0, size, size);
+
+        // Rocket (sederhana, putih) — arah kanan-atas
+        ctx.fillStyle = "#ffffff";
+        var cx = size * 0.5;
+        var cy = size * 0.52;
+        var s = size / 128; // skala dari koordinat 128
+
+        // Badan rocket
+        ctx.beginPath();
+        ctx.moveTo(cx + 20 * s, cy - 34 * s);          // hidung
+        ctx.quadraticCurveTo(cx + 34 * s, cy + 2 * s, cx + 4 * s, cy + 16 * s); // sisi kanan
+        ctx.lineTo(cx - 12 * s, cy + 4 * s);           // bawah badan
+        ctx.quadraticCurveTo(cx - 6 * s, cy - 24 * s, cx + 20 * s, cy - 34 * s); // sisi kiri
+        ctx.closePath();
+        ctx.fill();
+
+        // Jendela
+        ctx.beginPath();
+        ctx.arc(cx + 4 * s, cy - 8 * s, 7 * s, 0, Math.PI * 2);
+        ctx.fillStyle = "#3b82f6";
+        ctx.fill();
+
+        // Sirip kiri
+        ctx.fillStyle = "#ffffff";
+        ctx.beginPath();
+        ctx.moveTo(cx - 10 * s, cy + 2 * s);
+        ctx.lineTo(cx - 26 * s, cy + 18 * s);
+        ctx.lineTo(cx - 8 * s, cy + 12 * s);
+        ctx.closePath();
+        ctx.fill();
+
+        // Api (amber) — diagonal ke kiri-bawah
+        ctx.beginPath();
+        ctx.moveTo(cx - 10 * s, cy + 12 * s);
+        ctx.quadraticCurveTo(cx - 20 * s, cy + 22 * s, cx - 30 * s, cy + 26 * s);
+        ctx.quadraticCurveTo(cx - 16 * s, cy + 28 * s, cx - 6 * s, cy + 18 * s);
+        ctx.closePath();
+        ctx.fillStyle = "#f59e0b";
+        ctx.fill();
+
+        // Titik grup (3 lingkaran kecil = anggota grup FB) kanan-bawah
+        ctx.fillStyle = "rgba(255,255,255,0.9)";
+        dot(ctx, size * 0.78, size * 0.74, 4.5 * s);
+        dot(ctx, size * 0.86, size * 0.62, 3.5 * s);
+        dot(ctx, size * 0.70, size * 0.64, 3.5 * s);
+
+        ctx.restore();
+      }
+
+      function dot(ctx, x, y, r) {
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      function roundedRect(ctx, x, y, w, h, r) {
+        ctx.beginPath();
+        ctx.moveTo(x + r, y);
+        ctx.arcTo(x + w, y, x + w, y + h, r);
+        ctx.arcTo(x + w, y + h, x, y + h, r);
+        ctx.arcTo(x, y + h, x, y, r);
+        ctx.arcTo(x, y, x + w, y, r);
+        ctx.closePath();
+      }
+
+      function renderAll() {
+        SIZES.forEach(function (px) {
+          var canvas = canvases[px];
+          // Gambar di offscreen 128 lalu downscale agar detail tetap tajam
+          var off = document.createElement("canvas");
+          off.width = 128;
+          off.height = 128;
+          drawIcon(off.getContext("2d"), 128);
+          canvas.width = px;
+          canvas.height = px;
+          var ctx = canvas.getContext("2d");
+          ctx.imageSmoothingEnabled = px > 16;
+          ctx.clearRect(0, 0, px, px);
+          ctx.drawImage(off, 0, 0, px, px);
+        });
+      }
+
+      function download(px) {
+        var canvas = canvases[px];
+        var a = document.createElement("a");
+        a.href = canvas.toDataURL("image/png");
+        a.download = "icon" + px + ".png";
+        a.click();
+      }
+
+      function main() {
+        SIZES.forEach(function (px) {
+          canvases[px] = document.querySelector("canvas.s" + px);
+        });
+        renderAll();
+        document.getElementById("btnDownloadAll").addEventListener("click", function () {
+          // Beri jeda antar-download agar browser tidak memblokir
+          SIZES.forEach(function (px, i) {
+            setTimeout(function () { download(px); }, i * 300);
+          });
+        });
+      }
+
+      main();
+    </script>
+  </body>
+</html>

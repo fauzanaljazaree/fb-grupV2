@@ -49,6 +49,7 @@ fbGrup-AutoPosting/
 ├─ tools/verify.js          # pemeriksa struktur (node tools/verify.js)
 ├─ vendor/xlsx.full.min.js  # library pihak ketiga (SheetJS)
 ├─ assets/template_materi.xlsx
+├─ assets/icons/             # icon ekstensi (icon16/32/48/128.png) + icon-generator.html
 └─ backups/                 # arsip (tidak dipakai runtime)
 ```
 
