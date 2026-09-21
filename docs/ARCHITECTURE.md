@@ -166,6 +166,28 @@ membutuhkan tab FB terlihat agar user bisa mengklik.
 
 ## 8. Keputusan Desain Penting
 
+- **URL grup selalu dikanonikalkan ke `/groups/{id}` setelah klik sidebar
+  (SPA-safe).** Temuan lapangan: anchor di halaman `/groups` bisa href-nya
+  `/groups/{id}/posts/...` atau `/groups/{id}/user/...` (permalink postingan
+  sendiri / profil member) namun lolos filter `isGroupLink()` karena
+  `normalizeUrl()` memangkas ekor path sebelum perbandingan. Membuka permalink
+  membuat FB langsung fokus ke kolom komentar, lalu trigger composer
+  "Tulis sesuatu..." tidak ditemukan. Karena itu `navHomeToGroup()`
+  (`src/content/navigation.js`) selalu memanggil `ensureCanonicalUrl()`:
+  bila `location.pathname` masih punya ekor, cari anchor yang href-nya PERSIS
+  `/groups/{id}` dan klik itu (navigasi SPA, content script tetap hidup sehingga
+  `sendResponse` terkirim); full reload `location.href` hanya fallback terakhir.
+  Handler `NAV_HOME_TO_COMPOSER` (`src/content/content.js`) memanggil ulang
+  helper yang sama sebagai jaring pengaman sebelum `openComposer()`.
+  STEALTH-FIRST: kanonisasi TIDAK memakai `location.href`/reload paksa —
+  satu-satunya cara keluar dari URL racun adalah KLIK ANCHOR KANONIS yang
+  ada di halaman (href persis `/groups/{id}`, tanpa query). `isGroupLink()`
+  menolak anchor yang raw href-nya mengandung marker notifikasi/permalink
+  (`multi_permalinks`, `comment_id`, `notif_id`, `notif_t`, `story_fbid`,
+  `permalink`, `ref=notif`) SEJAK AWAL supaya klik pertama sudah bersih.
+  Bila anchor kanonis tidak ketemu / klik 3x tetap tidak membersihkan URL,
+  `ensureCanonicalUrl()` melempar Error eksplisit → scheduler menandai grup
+  itu ❌ dan lanjut antrean (bukan dipaksa lolos; user bisa retry manual).
 - **Workflow posting = SATU inti bersama: media DULU, baru caption (GATE blob),
   dengan saklar mode "autoposting".** Temuan lapangan: attach media
   me-`re-render` composer Lexical sehingga caption yang diketik SEBELUM media

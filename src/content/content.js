@@ -44,6 +44,10 @@
              composer terbuka. Timeout trigger lebih longgar karena halaman
              grup baru saja dimuat (SPA) setelah navHomeToGroup(). */
           const info = await navHomeToGroup(msg.targetGroupUrl || null);
+          /* Jaring pengaman: pastikan URL tab kanonis /groups/{id} sebelum
+             membuka composer (permalink postingan memunculkan kolom
+             komentar, bukan trigger "Tulis sesuatu..."). SPA-safe. */
+          await content.navigation.ensureCanonicalUrl();
           await openComposer(25000);
           sendResponse({ ok: true, url: location.href, groupUrl: info.groupUrl, groupName: info.groupName });
         } else if (msg.type === MSG.EXECUTE_POST) {

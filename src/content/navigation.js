@@ -35,9 +35,21 @@
   /** Sama dengan Node.DOCUMENT_POSITION_FOLLOWING (dipisah agar mudah diuji). */
   const DOC_POSITION_FOLLOWING = 4;
 
-  /** Link grup milik user? null bila bukan format kanonis / halaman sistem. */
+  /** Marker notifikasi/permalink di QUERY yang bikin FB me-render view
+      postingan + fokus kolom komentar walau path-nya kanonis. Anchor yang
+      raw href-nya mengandung salah satu ini DITOLAK (bukan link navigasi
+      grup, ini link notifikasi/aktivitas). */
+  const POISON_QUERY_RE = /(multi_permalinks|comment_id|notif_id|notif_t|story_fbid|permalink|ref=notif)/i;
+
+  /** Link grup milik user? null bila bukan format kanonis / halaman sistem.
+      PENTING: validasi pakai HREF MENTAH, bukan hasil normalizeUrl() —
+      href "/groups/{id}?multi_permalinks=...&ref=notif" (link notifikasi)
+      ternormalisasi jadi kanonis tapi bila diklik me-render view postingan. */
   function isGroupLink(a) {
-    const href = normalizeUrl(a.getAttribute("href"));
+    const raw = (a.getAttribute("href") || "").trim();
+    if (!raw) return null;
+    if (POISON_QUERY_RE.test(raw)) return null;
+    const href = normalizeUrl(raw);
     if (!href) return null;
     if (!/^https:\/\/(www\.|web\.)?facebook\.com\/groups\/[A-Za-z0-9._-]+\/?$/.test(href)) return null;
     if (SYSTEM_GROUP_URL.test(href)) return null;
@@ -138,7 +150,76 @@
     const groupName = typeof scraper.extractGroupName === "function" ? scraper.extractGroupName(groupEl) : (groupEl.textContent || "").trim().replace(/\s+/g, " ").slice(0, 120);
     groupEl.click();
     await sleep(randInt(1200, 2400));
-    return { groupUrl: groupUrl || location.href, groupName };
+    await ensureCanonicalUrl();
+    return { groupUrl: groupUrl || normalizeUrl(location.href) || location.href, groupName };
+  }
+
+  /** KANONISASI URL GRUP (temuan lapangan): anchor yang diklik bisa href-nya
+      /groups/{id}/posts/... /user/... atau query notifikasi
+      (?multi_permalinks=...&ref=notif) — FB membukanya dan langsung fokus ke
+      kolom komentar. Solusi STEALTH-FIRST: TIDAK ADA reload paksa dan TIDAK
+      ada navigasi yang tidak diawali klik manusiawi. Satu-satunya cara
+      keluar dari URL racun adalah KLIK ANCHOR KANONIS yang memang ada di
+      halaman (persis /groups/{id}, tanpa query). Bila tidak ketemu ->
+      throw Error eksplisit agar scheduler menandai grup ini gagal dan
+      lanjut (user bisa retry manual). Kembalikan URL kanonis. */
+  async function ensureCanonicalUrl() {
+    const canonical = normalizeUrl(location.href);
+    if (!canonical) return location.href;
+    let wantPath = "";
+    try {
+      wantPath = new URL(canonical).pathname.replace(/\/+$/, "");
+    } catch (e) {
+      return location.href;
+    }
+    const curPath = location.pathname.replace(/\/+$/, "");
+    const curQuery = (location.search || "") + (location.hash || "");
+    if (curPath === wantPath && !POISON_QUERY_RE.test(curQuery)) return canonical;
+    /* Cari anchor SPA href persis /groups/{id} TANPA query (boleh trailing
+       slash) lalu klik seperti manusia — FB router pindah tanpa reload
+       dokumen, content script tetap hidup, sendResponse tetap terkirim. */
+    let target = null;
+    for (const a of document.querySelectorAll('a[href^="/groups/"]')) {
+      const raw = (a.getAttribute("href") || "").split("#")[0];
+      const p = raw.split("?")[0].replace(/\/+$/, "");
+      if (p === wantPath && !raw.includes("?")) {
+        target = a;
+        break;
+      }
+    }
+    if (!target) {
+      throw new Error(
+        `URL grup masih racun (${location.href}) tapi anchor kanonis ${wantPath} tidak ditemukan di halaman — lewati grup ini (coba manual).`
+      );
+    }
+    await humanScrollToEl(target);
+    try {
+      target.click();
+    } catch (e) {
+      throw new Error("Klik anchor kanonis gagal: " + e.message);
+    }
+    await sleep(randInt(1200, 2400));
+    /* Verifikasi: path harus cocok & query bersih; loop maks 3x klik ulang
+       (klik pertama kadang nyangkut saat halaman masih re-render). */
+    for (let attempt = 0; attempt < 3; attempt++) {
+      const path = location.pathname.replace(/\/+$/, "");
+      const q = (location.search || "") + (location.hash || "");
+      if (path === wantPath && !POISON_QUERY_RE.test(q)) {
+        await sleep(randInt(800, 1600));
+        return normalizeUrl(location.href) || canonical;
+      }
+      const again = document.querySelector(`a[href="${wantPath}"], a[href="${wantPath}/"]`);
+      if (again) {
+        await humanScrollToEl(again);
+        again.click();
+        await sleep(randInt(1200, 2400));
+      } else {
+        await sleep(700);
+      }
+    }
+    throw new Error(
+      `Klik anchor kanonis tidak membersihkan URL (${location.href}) — lewati grup ini (coba manual).`
+    );
   }
 
   /** Expand bagian collapsible "Lihat selengkapnya" di sidebar (grup target
@@ -212,5 +293,5 @@
     return null;
   }
 
-  content.navigation = { navHomeToGroup, findTopJoinedGroup, findGroupByUrl };
+  content.navigation = { navHomeToGroup, findTopJoinedGroup, findGroupByUrl, ensureCanonicalUrl };
 })(globalThis);
