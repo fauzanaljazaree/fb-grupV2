@@ -90,7 +90,21 @@
     SCAN_MSG_TIMEOUT_MS: 120000,          /* timeout chrome.tabs.sendMessage scan */
     /* Mode manual (checkbox "autoposting" TIDAK dicentang): jendela waktu
        bagi user untuk klik tombol Posting sendiri sebelum alur lanjut. */
-    MANUAL_POST_WINDOW_MS: 10000
+    MANUAL_POST_WINDOW_MS: 10000,
+    /* Tambahan grup via picker "Tambahkan grup" composer: FB membatasi
+       "Posting hingga ke 9 grup yang ada Anda di dalamnya" per submit. */
+    EXTRA_GROUPS_PER_POST: 9,
+    /* Timeout EXECUTE_POST naik: batch 1+9 butuh 9x (search + centang)
+       di picker + verifikasi caption setelah re-render Lexical. */
+    EXECUTE_POST_TIMEOUT_MS: 240000,
+    /* Picker "Tambahkan grup": tunggu dialog + kolom search.
+       SEARCH-FIRST (user): ketik nama grup KARAKTER-PER-KARAKTER di kolom
+       "Cari grup" (set-value sekaligus tidak memicu filter React).
+       Fallback enumerasi baris + scroll lazy-render. */
+    ADD_GROUPS_TIMEOUT_MS: 15000,
+    PICKER_SEARCH_TIMEOUT_MS: 8000,
+    PICKER_SCROLL_PASSES: 15,
+    PICKER_STUCK_LIMIT: 3
   };
 
   /* ---------------- DAFTAR FILE CONTENT SCRIPT ----------------

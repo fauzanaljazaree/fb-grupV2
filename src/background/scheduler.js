@@ -44,11 +44,21 @@
     /* Default "Tampilkan tab FB saat posting" = AKTIF (checkbox dashboard
        tercentang secara default); hanya dimatikan bila eksplisit false. */
     run.showFbTab = settings.showFbTab !== false;
-    /* 1 materi ke semua grup sampai selesai, baru materi berikutnya:
-       loop luar = materi, loop dalam = grup. */
+    /* BATCH 1+9: 1 submit menjangkau s.d. 10 grup. Grup pertama batch =
+       grup utama (dinavigasi natural via sidebar), sisanya (s.d. 9) =
+       grup tambahan yang dicentang via picker "Tambahkan grup" di
+       composer (fitur bawaan FB, "Posting hingga ke 9 grup"). Loop
+       luar = materi, loop dalam = batch grup. */
     run.queue = [];
+    const step = 1 + LIMITS.EXTRA_GROUPS_PER_POST;
     for (let mi = 0; mi < materialList.length; mi++) {
-      for (let gi = 0; gi < run.groups.length; gi++) run.queue.push({ mi, gi });
+      for (let gi = 0; gi < run.groups.length; gi += step) {
+        run.queue.push({
+          mi,
+          gi,
+          extras: run.groups.slice(gi + 1, gi + step).map((g) => ({ name: g.name, url: g.url })),
+        });
+      }
     }
     run.cursor = 0;
     run.postsSinceCooldown = 0;
@@ -72,7 +82,7 @@
     keepAwakeOn();
     await setRunning(true);
     await log(
-      `Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} posting. Mode: 1 materi ke semua grup (klik natural sidebar tiap grup). Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`,
+      `Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} batch (1 grup utama + s.d. ${LIMITS.EXTRA_GROUPS_PER_POST} tambahan via "Tambahkan grup" per submit). Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`,
       "info",
     );
     await broadcastQueueInfo();
@@ -143,6 +153,15 @@
   /* ---------------- PROSES SATU LANGKAH ----------------
      Navigasi natural dilakukan sekali (run.groupUrl masih null),
      lalu tiap alarm berikutnya hanya memproses satu materi. */
+  /** Tandai hasil 1 grup (utama maupun tambahan): persist GROUP_RESULTS +
+      kirim GROUP_RESULT ke dashboard agar tabel update realtime. */
+  async function markGroup(url, ok, mi, error) {
+    if (!url) return;
+    run.results[url] = error ? { ok, mi, at: Date.now(), error } : { ok, mi, at: Date.now() };
+    await storageSet({ [STORAGE.GROUP_RESULTS]: run.results });
+    chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url, ok, mi, error: error || "" }).catch(() => {});
+  }
+
   async function processNextPost() {
     if (run.busy) return;
     if (!run.running) {
@@ -192,6 +211,11 @@
       const group = run.groups[gi] || null;
       if (!material) throw new Error("Materi tidak ditemukan di antrean.");
       if (!group || !group.url) throw new Error("Grup target tidak ditemukan di antrean.");
+      /* Grup tambahan batch ini (s.d. 9): dikirim ke content script untuk
+         dicentang via picker "Tambahkan grup". Urut sesuai tabel. */
+      const extras = (item && Array.isArray(item.extras) ? item.extras : [])
+        .map((g) => ({ name: g.name || g.url, url: g.url }))
+        .filter((g) => g.url);
       await log(`Navigasi natural ke grup: ${group.name || group.url}...`, "info");
       const navTab = await ensurePostTab(FB_HOME);
       await waitTabLoaded(navTab.id, 45000);
@@ -232,23 +256,38 @@
           mediaDataUrl: material.mediaDataUrl || null,
           mediaMime: material.mediaMime || "application/octet-stream",
           mediaName: material.mediaName || "",
+          extraGroups: extras,
         },
-        150000,
+        LIMITS.EXECUTE_POST_TIMEOUT_MS,
       );
 
       if (res && res.ok) {
         const statsNow = (await storageGet([STORAGE.STATS]))[STORAGE.STATS] || {};
+        /* 1x submit = +1 statistik harian (bukan +jumlah grup). */
         statsNow[today] = (statsNow[today] || 0) + 1;
-        run.results[group.url] = { ok: true, mi, at: Date.now() };
-        await storageSet({ [STORAGE.STATS]: statsNow, [STORAGE.GROUP_RESULTS]: run.results });
-        await log(autoPost ? `Sukses materi #${mi + 1} di ${run.groupName}` : `Materi #${mi + 1} siap di ${run.groupName}: media+caption terisi, jendela manual habis — lanjut berikutnya (hasil klik Posting user tidak diperiksa).`, "ok");
-        chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: true, mi }).catch(() => {});
+        await storageSet({ [STORAGE.STATS]: statsNow });
+        /* Grup utama: posting pasti terkirim bila res.ok. */
+        await markGroup(group.url, true, mi);
+        /* Grup tambahan: ✅ bila masuk res.added, ❌ bila masuk res.failed
+           (dengan alasan), agar tabel dashboard update per baris. */
+        const addedSet = new Set(res.added || []);
+        const failedMap = {};
+        for (const f of res.failed || []) failedMap[f] = f;
+        for (const ex of extras) {
+          if (addedSet.has(ex.url) || addedSet.has(ex.name)) await markGroup(ex.url, true, mi);
+          else if (failedMap[ex.url] || failedMap[ex.name]) await markGroup(ex.url, false, mi, "Grup tidak ditemukan di picker Tambahkan grup");
+          else await markGroup(ex.url, false, mi, (res && res.error) || "Tidak terkonfirmasi di picker");
+        }
+        await log(
+          `Sukses materi #${mi + 1} di ${run.groupName} (+${(res.added || []).length}/${extras.length} tambahan${(res.failed || []).length ? `, ${(res.failed || []).length} ❌ di tabel` : ""}; picker: ${res.rowsSeen == null ? "-" : res.rowsSeen < 0 ? "mode search" : res.rowsSeen + " baris terbaca"} baris terbaca)${autoPost ? "" : " — mode manual, hasil klik Posting user tidak diperiksa"}`,
+          "ok",
+        );
       } else {
         const msg = (res && res.error) || "tidak ada respons";
-        run.results[group.url] = { ok: false, mi, at: Date.now(), error: msg };
-        await storageSet({ [STORAGE.GROUP_RESULTS]: run.results });
-        await log(`GAGAL materi #${mi + 1} di ${run.groupName}: ${msg} — lanjut grup berikutnya.`, "err");
-        chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: false, mi, error: msg }).catch(() => {});
+        /* Batch gagal total: tandai grup utama + semua tambahan ❌. */
+        await markGroup(group.url, false, mi, msg);
+        for (const ex of extras) await markGroup(ex.url, false, mi, msg);
+        await log(`GAGAL materi #${mi + 1} di ${run.groupName}: ${msg} — lanjut batch berikutnya.`, "err");
       }
 
       /* Opsi C: setelah posting selesai, fokus balik ke dashboard */
@@ -281,13 +320,15 @@
         const mi = typeof item === "object" && item.mi != null ? item.mi : run.cursor;
         const gi = typeof item === "object" && item.gi != null ? item.gi : 0;
         const group = (run.groups && run.groups[gi]) || null;
+        const extras = (item && Array.isArray(item.extras) ? item.extras : []).map((g) => g.url).filter(Boolean);
+        const errMsg = (err && err.message) || String(err);
         if (group && group.url) {
-          run.results[group.url] = { ok: false, mi, at: Date.now(), error: (err && err.message) || String(err) };
-          await storageSet({ [STORAGE.GROUP_RESULTS]: run.results });
-          chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url: group.url, ok: false, mi, error: (err && err.message) || "" }).catch(() => {});
-          await log(`GAGAL materi #${mi + 1} di ${group.name}: ${err.message} — lanjut grup berikutnya.`, "err");
+          /* Batch gagal total: grup utama + semua tambahan ditandai ❌. */
+          await markGroup(group.url, false, mi, errMsg);
+          for (const url of extras) await markGroup(url, false, mi, errMsg);
+          await log(`GAGAL materi #${mi + 1} di ${group.name}: ${errMsg} — lanjut batch berikutnya.`, "err");
         } else {
-          await log(`Error proses posting: ${err.message}`, "err");
+          await log(`Error proses posting: ${errMsg}`, "err");
         }
         run.cursor++;
         await storageSet({ [STORAGE.CURSOR]: run.cursor });

@@ -49,23 +49,23 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 
 ## 3. Protokol Pesan (`FBAP.config.MSG`)
 
-| Tipe                           | Arah                   | Payload                                                 | Efek                                                                                                                                                                                                                                                  |
-| ------------------------------ | ---------------------- | ------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PING`                         | background → content   | –                                                       | Cek content script terpasang (`{ok:true,pong:true}`)                                                                                                                                                                                                  |
-| `NAV_HOME_TO_GROUP`            | background → content   | –                                                       | Navigasi natural, balas `{groupUrl, groupName}`                                                                                                                                                                                                       |
-| `NAV_HOME_TO_COMPOSER`         | background → content   | –                                                       | Navigasi natural + buka composer, balas `{groupUrl, groupName, url}`                                                                                                                                                                                  |
-| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName` | `postToGroup()`: inti media-dulu+caption → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, error}`                                          |
-| `EXECUTE_SCRAPE`               | background → content   | –                                                       | Scraper daftar grup mode lama (scroll window)                                                                                                                                                                                                         |
-| `START_SCAN`                   | dashboard → background | –                                                       | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js` |
-| `SCAN_GROUPS`                  | background → content   | –                                                       | `scanGroups()`: loop scroll sidebar (maks 80 pass) + kumpulkan `a[href*="/groups/"]`, balas `{ok, sourceUrl, scannedAt, groups}`                                                                                                                      |
-| `START_POSTING`                | dashboard → background | `{materials, settings}`                                 | Bangun antrean + mulai alarm                                                                                                                                                                                                                          |
-| `STOP_POSTING`                 | dashboard → background | –                                                       | Hentikan antrean & lepas keep-awake                                                                                                                                                                                                                   |
-| `GET_STATUS`                   | dashboard → background | –                                                       | `{ok, running, recovered?}` — status dihitung dari memori + alarm; status basi dibersihkan                                                                                                                                                            |
-| `SET_VIEW`                     | dashboard → background | `showFbTab`                                             | Set mode tampilan tab FB                                                                                                                                                                                                                              |
-| `VIEW_FB_TAB`                  | dashboard → background | –                                                       | Fokus/buka tab FB                                                                                                                                                                                                                                     |
-| `OPEN_COMPOSER`                | dashboard → background | –                                                       | Uji jalur navigasi home → grup → composer (tab FB difokuskan selama proses, lalu fokus balik ke dashboard)                                                                                                                                            |
-| `BACK_TO_DASHBOARD`            | dashboard → background | –                                                       | Fokus balik ke tab dashboard                                                                                                                                                                                                                          |
-| `LOG` / `STATE` / `QUEUE_INFO` | background → dashboard | teks log / running / sisa antrean                       | Update UI realtime                                                                                                                                                                                                                                    |
+| Tipe                           | Arah                   | Payload                                                              | Efek                                                                                                                                                                                                                                                                                                                                   |
+| ------------------------------ | ---------------------- | -------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PING`                         | background → content   | –                                                                    | Cek content script terpasang (`{ok:true,pong:true}`)                                                                                                                                                                                                                                                                                   |
+| `NAV_HOME_TO_GROUP`            | background → content   | –                                                                    | Navigasi natural, balas `{groupUrl, groupName}`                                                                                                                                                                                                                                                                                        |
+| `NAV_HOME_TO_COMPOSER`         | background → content   | –                                                                    | Navigasi natural + buka composer, balas `{groupUrl, groupName, url}`                                                                                                                                                                                                                                                                   |
+| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 9 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed}` (added/failed = url grup tambahan) |
+| `EXECUTE_SCRAPE`               | background → content   | –                                                                    | Scraper daftar grup mode lama (scroll window)                                                                                                                                                                                                                                                                                          |
+| `START_SCAN`                   | dashboard → background | –                                                                    | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js`                                                                                  |
+| `SCAN_GROUPS`                  | background → content   | –                                                                    | `scanGroups()`: loop scroll sidebar (maks 80 pass) + kumpulkan `a[href*="/groups/"]`, balas `{ok, sourceUrl, scannedAt, groups}`                                                                                                                                                                                                       |
+| `START_POSTING`                | dashboard → background | `{materials, settings}`                                              | Bangun antrean + mulai alarm                                                                                                                                                                                                                                                                                                           |
+| `STOP_POSTING`                 | dashboard → background | –                                                                    | Hentikan antrean & lepas keep-awake                                                                                                                                                                                                                                                                                                    |
+| `GET_STATUS`                   | dashboard → background | –                                                                    | `{ok, running, recovered?}` — status dihitung dari memori + alarm; status basi dibersihkan                                                                                                                                                                                                                                             |
+| `SET_VIEW`                     | dashboard → background | `showFbTab`                                                          | Set mode tampilan tab FB                                                                                                                                                                                                                                                                                                               |
+| `VIEW_FB_TAB`                  | dashboard → background | –                                                                    | Fokus/buka tab FB                                                                                                                                                                                                                                                                                                                      |
+| `OPEN_COMPOSER`                | dashboard → background | –                                                                    | Uji jalur navigasi home → grup → composer (tab FB difokuskan selama proses, lalu fokus balik ke dashboard)                                                                                                                                                                                                                             |
+| `BACK_TO_DASHBOARD`            | dashboard → background | –                                                                    | Fokus balik ke tab dashboard                                                                                                                                                                                                                                                                                                           |
+| `LOG` / `STATE` / `QUEUE_INFO` | background → dashboard | teks log / running / sisa antrean                                    | Update UI realtime                                                                                                                                                                                                                                                                                                                     |
 
 Nilai setiap konstanta sengaja identik dengan namanya agar mudah dilacak di
 DevTools. `tools/verify.js` memastikan tidak ada konstanta yang menganggur dan
@@ -274,6 +274,58 @@ lalu document) → `typeCaption()`.
   ketemu / mentok bawah (berhenti setelah 3 pass tanpa gerak). Pencarian
   anchor dilakukan document-wide karena lazy-render bisa menempatkan anchor
   di luar sub-tree sidebar yang lama.
+
+- **Batch 1+9 grup per submit (picker "Tambahkan grup").** Antrean dibangun
+  per batch `{mi, gi, extras}` — grup pertama batch = grup utama yang
+  dinavigasi natural, sisanya (maks `LIMITS.EXTRA_GROUPS_PER_POST = 9`)
+  dicentang via picker "Tambahkan grup" composer (fitur bawaan FB: "Posting
+  hingga ke 9 grup yang ada Anda di dalamnya"). Search-FIRST di picker (temuan lapangan: enumerasi baris gagal karena
+  checkbox picker tidak selalu punya role='checkbox', dan set-value
+  sekaligus tidak memicu filter React). DETEKSI PICKER (temuan lapangan
+  #2): judul "Tambahkan grup" di header picker adalah TEKS biasa, bukan
+  div[role="button"], sehingga pencarian judul via tombol klikabel selalu
+  gagal (popup terlihat di layar tapi tetap timeout) — findGroupPicker()
+  kini mengecek judul via teks heading pendek (pickerHasTitleText()) ATAU
+  keberadaan kolom "Cari grup" (findPickerSearch()), dan mengecualikan
+  composer utama via dialogHasComposerEditor() (picker tidak punya editor
+  caption) selain identitas referensi. listPickerRows() punya fallback:
+  bila tidak ada kandidat checkbox sama sekali, baris dibangun dari logo
+  img (klik nama/logo/baris sama sah mencentang). VERIFIKASI CENTANG (temuan lapangan #3): checkbox picker FB adalah <input type=checkbox> yang state-nya ada di ATRIBUT aria-checked, bukan properti .checked DOM — isRowChecked()/countCheckedRows() wajib cek keduanya (verifikasi hanya-.checked selalu baca false walau klik berhasil). DIALOG TERTUTUP (temuan lapangan #4): FB menutup dialog dengan fade visibility:hidden/opacity:0 — dialog tetap berdimensi sehingga isElementVisible tetap true; deteksi buka/tutup picker memakai dialogIsOpen() (computed style: display/visibility/opacity). TOMBOL PEMBUKA PICKER (temuan lapangan #5): composer memuat banyak teks mengandung kata "grup" ("Posting hingga ke 9 grup...", panel "Tambahkan ke postingan Anda") sehingga ambil-kandidat-pertama sering mengklik tombol SALAH dan picker tidak pernah terbuka. findAddGroupsButton() kini memberi SKOR presisi per kandidat (aria-label > teks persis > prefix > contains), menolak kandidat beracun (ADD_GROUPS_POISON_RE), dan memilih skor tertinggi. Kliknya memakai rangkaian event React-realistis (clickButtonRealistic(): pointerover/pointerdown/mousedown/focus/mouseup/click dengan koordinat), lalu DIVERIFIKASI kemunculan picker dan diulang maks 3x sebelum menyerah. Jalur utama:
+  pickOneGroupBySearch() mengetik nama target KARAKTER-PER-KARAKTER di
+  kolom 'Cari grup' (typePickerSearch(): execCommand insertText + event
+  keydown/input/keyup, verifikasi search.value penuh, coba 2x), tunggu
+  hasil menyempit (PICKER_SEARCH_TIMEOUT_MS), cocokkan baris (matchScore),
+  klik fleksibel (clickRowFlexible), verifikasi aria-checked, kosongkan
+  search (clearPickerSearch). FALLBACK bila kolom search tidak ditemukan:
+  pickGroupsByRows() enumerasi baris + scroll lazy-render + fallback fill
+  baris mana pun (usedRows), ditandai '(fallback)' di matched untuk
+   PORTAL-SAFE (temuan lapangan #6, adopsi tambahGrupFB): FB me-render
+   daftar grup picker via React PORTAL di luar subtree dialog — query ketat
+   di dalam dialog menghasilkan 0 item. Saat listPickerRows() tidak
+   menemukan baris di dalam picker, enumerasi beralih ke checkbox grup
+   DOCUMENT-WIDE dengan filter 4 lapis (isGroupCheckbox): buang
+   role="switch", buang disabled, WAJIB wrapper [role="button"] memuat
+   foto (svg/image/img), buang wrapper berteks "anonim/anonymous" — supaya
+   toggle "Posting secara anonim" tidak pernah tersentuh. Klik baris
+   memakai WRAPPER [role="button"] dulu (klik langsung ke <input> sering
+   tidak memicu state React FB), dengan jeda ritme manusia 70/30
+   (600-1400 ms vs 1400-2600 ms) antar checklist dan jeda 1500-3500 ms
+   sebelum menutup picker. findPickerDone() punya fallback document-wide
+   [role="button"] dengan aria-label/teks persis "Selesai/Done" — tombol
+   bisa ikut di-render di luar dialog.
+  diagnostik Live Log. Alur
+  `postToGroup()`:
+  media → caption → `addExtraGroups()` (selalu otomatis, juga di mode
+  manual) → verifikasi caption utuh (picker bisa re-render Lexical) → submit.
+  Timeout `EXECUTE_POST` = `LIMITS.EXECUTE_POST_TIMEOUT_MS` (240s) karena
+  9x (search + centang) di picker. Pencocokan grup di picker pakai
+  search + nama (case-insensitive, normalized) + fallback baris-apa-saja;
+  hanya gagal (masuk `failed`) bila baris di picker benar-benar habis
+  (mentok scroll) sebelum semua slot terisi — scheduler menandai ❌ per URL
+  via `markGroup()` (utama + tiap tambahan), sehingga tabel dashboard update
+  per baris. Statistik harian +1 per submit (per batch), bukan per grup.
+  Timeout picker: `ADD_GROUPS_TIMEOUT_MS` / `GROUP_SEARCH_TIMEOUT_MS`; tutup
+  picker = tombol "Selesai" dengan fallback panah mundur lalu tombol Escape; setiap percobaan tutup WAJIB re-query picker fresh (findGroupPicker()) karena referensi picker bisa stale (search/centang me-re-render dialog FB).
 
 ## 9. Verifikasi Otomatis
 

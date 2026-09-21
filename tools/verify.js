@@ -663,8 +663,8 @@ function checkAutoPostWiring() {
   const manualWait = posting.indexOf("await sleep(MANUAL_POST_WINDOW_MS);", manualBranch);
   const submitClick = posting.indexOf("await findPostButton(20000)");
   report(
-    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick && /if \(!autoPost\)[\s\S]*?return true;/.test(posting),
-    "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return true SEBELUM klik tombol Posting",
+    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick && /if \(!autoPost\)[\s\S]*?return \{ ok: true, added, failed, rowsSeen \};/.test(posting),
+    "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return {ok,added,failed,rowsSeen} SEBELUM klik tombol Posting",
     "ok",
   );
 
@@ -676,16 +676,82 @@ function checkAutoPostWiring() {
   const usedByProd = posting.indexOf("await composeMediaAndCaption(caption");
   report(core !== -1 && usedByProd !== -1, "postToGroup memakai inti bersama composeMediaAndCaption (satu jalur media-dulu)", core !== -1 && usedByProd !== -1 ? "ok" : "inti bersama tidak dipakai");
   report(
-    /async function postToGroup\(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true\)/.test(posting) && /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
-    "postToGroup(caption, media, autoPost): inti media-dulu -> caption -> klik tombol Posting",
+    /async function postToGroup\(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true, extraGroups = \[\]\)/.test(posting) && /async function postToGroup[\s\S]*?composeMediaAndCaption[\s\S]*?findPostButton/.test(posting),
+    "postToGroup(caption, media, autoPost, extraGroups): inti media-dulu -> caption -> klik tombol Posting",
     "ok",
   );
   report(/VERIFIKASI PASCA-SUBMIT[\s\S]*?composer tertutup setelah klik Posting[\s\S]*?retry/.test(posting), "postToGroup: verifikasi composer tertutup + retry (anti false-sukses)", "ok");
   const media = read("src/content/media.js").replace(/\r/g, "");
   report(/FALLBACK[\s\S]*?attachMedia\(mediaDataUrl/.test(media), "uploadMedia punya fallback attachMedia (dataURL rusak tetap terlampir)", "ok");
   const schedSrc = read("src/background/scheduler.js");
-  report(/EXECUTE_POST,[\s\S]*?150000/.test(schedSrc.replace(/\r/g, "")), "Timeout EXECUTE_POST dinaikkan ke 150s (upload+GATE+caption+submit)", /150000/.test(schedSrc) ? "ok" : "masih 90s");
+  report(/EXECUTE_POST,[\s\S]*?LIMITS\.EXECUTE_POST_TIMEOUT_MS/.test(schedSrc.replace(/\r/g, "")), "Timeout EXECUTE_POST memakai LIMITS.EXECUTE_POST_TIMEOUT_MS (240s, batch 1+9)", /EXECUTE_POST_TIMEOUT_MS/.test(schedSrc) ? "ok" : "timeout lama");
 }
+
+/* ---------- 9b. WIRING BATCH 1+9 GRUP (picker "Tambahkan grup") ----------
+   1 submit menjangkau s.d. 10 grup: grup utama dinavigasi natural, s.d. 9
+   tambahan dicentang via picker "Tambahkan grup" di composer. Alur wajib:
+   media -> caption -> tambah grup -> submit; hasil per grup (added/failed)
+   ditandai satu per satu di tabel dashboard (GROUP_RESULT per URL). */
+function checkExtraGroupsWiring() {
+  const config = read("src/shared/config.js").replace(/\r/g, "");
+  report(/EXTRA_GROUPS_PER_POST:\s*9/.test(config) && /EXECUTE_POST_TIMEOUT_MS:\s*\d+/.test(config) && /ADD_GROUPS_TIMEOUT_MS:\s*\d+/.test(config) && /PICKER_SCROLL_PASSES:\s*\d+/.test(config) && /PICKER_STUCK_LIMIT:\s*\d+/.test(config) && /PICKER_SEARCH_TIMEOUT_MS:\s*\d+/.test(config), "LIMITS batch: EXTRA_GROUPS_PER_POST=9 + timeout EXECUTE_POST/picker + batas scroll di config.js", "ok");
+
+  const selectors = read("src/content/selectors.js").replace(/\r/g, "");
+  report(/ADD_GROUPS_BUTTON_KW[\s\S]*?GROUP_PICKER_TITLE_KW[\s\S]*?GROUP_PICKER_DONE_KW/.test(selectors) && /GROUP_PICKER_SEARCH_KW/.test(selectors), "Selektor picker (keyword ID+EN) terpusat di selectors.js (search-first)", "ok");
+
+  const dom = read("src/content/dom.js").replace(/\r/g, "");
+  for (const fn of ["findAddGroupsButton", "findGroupPicker", "findPickerSearch", "clearPickerSearch", "listPickerRows", "pickerScroller", "rowCheckbox", "findPickerDone", "findPickerBack", "isRowChecked", "countCheckedRows"]) {
+    report(new RegExp(`(function ${fn}|${fn},)`).test(dom), `dom.js: finder picker ${fn} ada & terekspor`, "ok");
+  }
+  report(/ROW_SUBTITLE_RE/.test(dom) && /overflowY/.test(dom), "dom.js: nama baris dibersihkan dari subtitle & scroller auto-detect (overflowY)", "ok");
+  report(/function scoreAddGroupsCandidate/.test(dom) && /ADD_GROUPS_POISON_RE/.test(dom) && /hingga ke 9/.test(dom), "findAddGroupsButton: skor presisi + tolak kandidat beracun (teks 'grup' lain di composer, temuan #5)", "ok");
+  report(/function pickerHasTitleText/.test(dom) && /pickerHasTitleText\(d\) && !findPickerSearch\(d\)/.test(dom) && /dialogHasComposerEditor\(d\)\) continue/.test(dom), "findGroupPicker: judul dicek via TEKS heading (bukan tombol klikabel) + fallback kolom search + pengecualian composer via dialogHasComposerEditor", "ok");
+  report(/cbs\.length \? cbs : picker\.querySelectorAll\("img"\)/.test(dom), "listPickerRows: fallback baris dari logo img bila kandidat checkbox kosong", "ok");
+  report(/function dialogIsOpen/.test(dom) && /if \(!dialogIsOpen\(d\)\) continue/.test(dom) && /\n\s*dialogIsOpen,/.test(dom), "findGroupPicker: dialog fade-out (visibility/opacity/zero-rect) ditolak via dialogIsOpen (temuan #4) + terekspor", "ok");
+  report(/!!cb\.checked \|\| \(cb\.getAttribute\("aria-checked"\)/.test(dom) && /el\.checked \|\| \(el\.getAttribute\("aria-checked"\)/.test(dom), "isRowChecked/countCheckedRows: INPUT dicek via .checked ATAU atribut aria-checked (temuan #3)", "ok");
+  report(/tidak membuka popup setelah 3 percobaan/.test(read("src/content/posting.js")) && /Klik tombol "\$\{btnLabel\}" \(percobaan/.test(read("src/content/posting.js")), "addExtraGroups: klik + verifikasi picker muncul (retry 3x) + diagnostik dialog", "ok");
+  report(/function clickButtonRealistic/.test(read("src/content/posting.js")) && /pointerover/.test(read("src/content/posting.js")) && /pointerdown/.test(read("src/content/posting.js")) && /mouseup/.test(read("src/content/posting.js")), "Klik tombol FB memakai rangkaian event React-realistis (pointer/mouse + click), bukan .click() polos", "ok");
+  report(/const how = await tryClose\(\)/.test(read("src/content/posting.js")) && /pressEscape\(\)/.test(read("src/content/posting.js")) && /\(Escape\)/.test(read("src/content/posting.js")), "closeGroupPicker: re-query picker fresh tiap percobaan (anti referensi stale) + fallback Escape", "ok");
+
+  const posting = read("src/content/posting.js").replace(/\r/g, "");
+  const captionIdx = posting.indexOf("typeCaption(editor, finalText)");
+  const addIdx = posting.indexOf("addExtraGroups(findComposerDialog(), extraGroups)");
+  const submitIdx = posting.indexOf("await findPostButton(20000)");
+  report(captionIdx !== -1 && addIdx !== -1 && submitIdx !== -1 && captionIdx < addIdx && addIdx < submitIdx, "postToGroup: urutan caption -> tambah grup -> submit (tambah grup selalu otomatis)", captionIdx !== -1 && addIdx !== -1 && submitIdx !== -1 ? "ok" : "urutan salah");
+  report(/pickGroupsByRows[\s\S]*?PICKER_SCROLL_PASSES/.test(posting) && /matchScore[\s\S]*?return 3/.test(posting) && /clickRowFlexible/.test(posting), "addExtraGroups: fallback enumerasi + skor persis>contains>keyword + klik fleksibel", "ok");
+  report(/slice\(0, EXTRA_GROUPS_PER_POST\)/.test(posting), "addExtraGroups memotong list maks EXTRA_GROUPS_PER_POST", "ok");
+  report(!/setNativeValue|GROUP_SEARCH_TIMEOUT_MS/.test(posting), "Jalur set-value sekaligus tetap dihapus dari posting.js", "ok");
+  report(/pickOneGroupBySearch[\s\S]*?typePickerSearch[\s\S]*?PICKER_SEARCH_TIMEOUT_MS/.test(posting) && /execCommand\("insertText", false, ch\)/.test(posting), "Search-first: ketik nama per karakter di kolom Cari grup + verifikasi value", "ok");
+
+  const sched = read("src/background/scheduler.js").replace(/\r/g, "");
+  report(/1 \+ LIMITS\.EXTRA_GROUPS_PER_POST/.test(sched) && /extras: run\.groups\.slice\(/.test(sched), "startPosting: antrean dibangun per batch {mi, gi, extras} (1+9)", "ok");
+  report(/extraGroups: extras,/.test(sched), "EXECUTE_POST mengirim extraGroups ke content script", "ok");
+  report(/markGroup\(ex\.url, true, mi\)[\s\S]*?markGroup\(ex\.url, false, mi,/.test(sched), "Hasil per grup tambahan ditandai ✅/❌ satu per satu (markGroup per URL)", "ok");
+  report(/markGroup\(group\.url, true, mi\)/.test(sched), "Grup utama ikut ditandai di tabel dashboard", "ok");
+  report(/GAGAL materi #\$\{mi \+ 1\}[\s\S]*?lanjut batch berikutnya/.test(sched), "Gagal batch tidak menghentikan antrean (lanjut batch berikutnya)", "ok");
+
+  const content = read("src/content/content.js").replace(/\r/g, "");
+  report(/msg\.extraGroups \|\| \[\]/.test(content) && /added: \(r && r\.added\)/.test(content) && /failed: \(r && r\.failed\)/.test(content) && /rowsSeen: \(r && r\.rowsSeen\)/.test(content), "Router content: meneruskan extraGroups & mengembalikan added/failed/rowsSeen ke scheduler", "ok");
+  report(/rowsSeen/.test(posting) && /baris terbaca/.test(sched), "Diagnostik picker (jumlah baris terbaca) mengalir sampai Live Log dashboard", "ok");
+}
+
+/* ---------- 10b. PORTAL-SAFE PICKER (adopsi tambahGrupFB) ----------
+   Checkbox grup dibaca document-wide saat picker kosong (React PORTAL),
+   filter 4 lapis anti-toggle-anonim, klik WRAPPER [role="button"] dulu,
+   tombol Selesai punya fallback document-wide. */
+function checkPickerPortalSafe() {
+  const dom = read("src/content/dom.js").replace(/\r/g, "");
+  const posting = read("src/content/posting.js").replace(/\r/g, "");
+  report(/function isGroupCheckbox[\s\S]{0,600}?"switch"[\s\S]{0,200}?\.disabled[\s\S]{0,200}?svg, image, img[\s\S]{0,300}?anonim/.test(dom), "dom.js: isGroupCheckbox() filter 4 lapis (switch/disabled/foto/anonim)", "ok");
+  report(/listGroupCheckboxesDocWide[\s\S]{0,400}document\.querySelectorAll\('input\[type="checkbox"\]'\)/.test(dom), "dom.js: listGroupCheckboxesDocWide() enumerasi checkbox document-wide (portal-safe)", "ok");
+  report(/PORTAL-SAFE[\s\S]{0,900}listGroupCheckboxesDocWide\(\)/.test(dom), "dom.js: listPickerRows() fallback ke checkbox document-wide bila picker kosong", "ok");
+  report(/clickableRow[\s\S]{0,200}candidates = \[clickableRow, cb/.test(posting), "posting.js: clickRowFlexible() klik WRAPPER [role=button] dulu sebelum checkbox", "ok");
+  report(/function humanClickDelay[\s\S]{0,300}0\.7 \? randInt\(600, 1400\) : randInt\(1400, 2600\)/.test(posting), "posting.js: humanClickDelay() ritme 70/30 adopsi tambahGrupFB", "ok");
+  report(/randInt\(1500, 3500\)[\s\S]{0,300}closeGroupPicker\(picker\)/.test(posting), "posting.js: jeda visual-check 1500-3500ms sebelum tutup picker", "ok");
+  report(/function findPickerDone[\s\S]{0,600}querySelectorAll\('\[role="button"\]'\)/.test(dom), "dom.js: findPickerDone() fallback document-wide tombol Selesai/Done", "ok");
+}
+
+/* ---------- 11. RUNNER ---------- */
 
 /* ---------- 10. WIRING WORKFLOW SCAN (pola fb-grupV3) ----------
    Dashboard hanya pemicu START_SCAN; background orkestrasi tab
@@ -717,6 +783,8 @@ function checkScanWiring() {
   checkMsgConstants();
   checkPostingUsesComposerChain();
   checkAutoPostWiring();
+  checkExtraGroupsWiring();
+  checkPickerPortalSafe();
   checkScanWiring();
   checkParity();
   checkLoadBackground();

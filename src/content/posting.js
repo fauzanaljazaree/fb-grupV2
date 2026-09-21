@@ -18,12 +18,35 @@
 
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
-  const { MANUAL_POST_WINDOW_MS } = FBAP.config.LIMITS;
+  const { MANUAL_POST_WINDOW_MS, ADD_GROUPS_TIMEOUT_MS, PICKER_SEARCH_TIMEOUT_MS, PICKER_SCROLL_PASSES, PICKER_STUCK_LIMIT } = FBAP.config.LIMITS;
+  const { EXTRA_GROUPS_PER_POST } = FBAP.config.LIMITS;
   const { randInt } = FBAP.random;
   const { sleep } = FBAP.time;
   const { parse } = FBAP.spintax;
   const { CAPTION_EDITOR, CAPTION_EDITOR_LEXICAL } = content.selectors;
-  const { findEditor, findPostButton, waitForTextInTrigger, findComposerDialog, findMediaScope, waitFor, isEditableVisible, isInComposerDialog } = content.dom;
+  const {
+    findEditor,
+    findPostButton,
+    waitForTextInTrigger,
+    findComposerDialog,
+    findMediaScope,
+    waitFor,
+    isEditableVisible,
+    isElementVisible,
+    isInComposerDialog,
+    findAddGroupsButton,
+    findGroupPicker,
+    listPickerRows,
+    pickerScroller,
+    findPickerSearch,
+    clearPickerSearch,
+    rowCheckbox,
+    findPickerDone,
+    findPickerBack,
+    isRowChecked,
+    countCheckedRows,
+    dialogIsOpen,
+  } = content.dom;
   const { humanScrollToEl } = content.stealth;
   const { uploadMedia } = content.media;
 
@@ -209,26 +232,434 @@
     return { dialog, editor, editorText: getEditorText(editor) };
   }
 
-  /** Posting satu materi: inti media-dulu + caption, LALU submit.
-      `autoPost` (checkbox "autoposting" dashboard):
-        true  -> klik tombol Posting otomatis + VERIFIKASI composer tertutup
-                 (bila tidak tertutup -> throw, scheduler mencatat GAGAL).
-        false -> cukup sampai media dimuat & caption tertulis; beri user
-                 MANUAL_POST_WINDOW_MS untuk klik Posting sendiri. Setelah
-                 jendela berakhir, alur tetap lanjut apa pun yang terjadi
-                 (hasil klik user tidak diperiksa — draft dibiarkan apa adanya). */
-  async function postToGroup(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true) {
+  /* =========================================================
+     TAMBAHAN GRUP (picker "Tambahkan grup"): 1 posting -> 10 grup.
+     Alur: klik tombol "+ Tambahkan grup" di header composer ->
+     popup picker muncul -> ENUMERASI baris yang ter-render ->
+     cocokkan nama grup langsung (skor: persis > contains > kata
+     kunci) -> klik fleksibel (WRAPPER [role="button"] dulu —
+     adopsi tambahGrupFB, lalu checkbox/teks/logo/baris) ->
+     verifikasi aria-checked -> scroll lazy-render untuk baris
+     berikutnya -> tutup dengan "Selesai" (fallback panah mundur
+     dan pencarian document-wide — React PORTAL, adopsi
+     tambahGrupFB).
+     TANPA search: input "Cari grup" FB adalah controlled input React
+     yang tidak andal dipicu event sintetis (temuan lapangan).
+     Return { added: [url...], failed: [url...] }.
+     Yang tidak ketemu TIDAK menggagalkan batch (ditandai ❌ di
+     tabel dashboard oleh scheduler).
+     ========================================================= */
+
+  /** Skor kecocokan nama target vs nama baris picker (keduanya sudah
+      lowercase/spasi tunggal). 3 = persis, 2 = contains dua arah,
+      1 = semua kata kunci (2+ huruf) ada, 0 = tidak cocok. */
+  function matchScore(want, have) {
+    if (!want || !have) return 0;
+    if (want === have) return 3;
+    if (have.includes(want) || want.includes(have)) return 2;
+    const words = want.split(" ").filter((w) => w.length > 2);
+    if (words.length && words.every((w) => have.includes(w))) return 1;
+    return 0;
+  }
+
+  /** Ritme klik manusia antar checklist (adopsi tambahGrupFB / KLM):
+      dominan ritmis-cepat (70%), sesekali berhenti membaca (30%). */
+  async function humanClickDelay() {
+    await sleep(Math.random() < 0.7 ? randInt(600, 1400) : randInt(1400, 2600));
+  }
+
+  /** Klik fleksibel 1 baris (info user: checkbox / teks / logo sama-sama
+      mencentang). Adopsi tambahGrupFB: klik WAJIB di WRAPPER
+      [role="button"] dulu (klik langsung ke <input> sering tidak memicu
+      state React FB), lalu fallback chain + verifikasi aria-checked tiap
+      tahap: 1) wrapper baris 2) checkbox 3) node teks nama 4) logo
+      (img, dipanjat ke klikable). Return true bila baris jadi tercentang. */
+  async function clickRowFlexible(row, checkedBefore) {
+    const cb = rowCheckbox(row);
+    const nameEl = Array.from(row.querySelectorAll("span, p, div")).find((el) => !el.children.length && (el.textContent || "").trim());
+    const imgEl = row.querySelector("img");
+    const clickableRow = row.matches && row.matches('div[role="button"], div[tabindex="0"]') ? row : row.closest('div[role="button"]');
+    const candidates = [clickableRow, cb, nameEl && nameEl.closest('div[role="button"], div[tabindex="0"]') ? nameEl : null, imgEl && (imgEl.closest('div[role="button"], div[tabindex="0"]') || imgEl)].filter(Boolean);
+    for (const c of candidates) {
+      try {
+        c.click();
+      } catch (e) {
+        continue;
+      }
+      await sleep(randInt(400, 800));
+      if (isRowChecked(row) || countCheckedRows(row.closest('div[role="dialog"]') || row) > checkedBefore) return true;
+    }
+    return isRowChecked(row) || countCheckedRows(row.closest('div[role="dialog"]') || row) > checkedBefore;
+  }
+
+  /** Pilih sekumpulan grup target di picker TANPA search: enumerasi
+      baris ter-render -> cocokkan nama (skor berlapis) -> klik fleksibel
+      -> scroll lazy-render sampai semua ketemu / daftar mentok.
+      Return { added: Set<index>, matched: Map<index, namaBaris>,
+               rowsSeen: jumlah nama baris unik terbaca }.
+      Target yang tidak ketemu nama-nya TETAP diisi via FALLBACK (baris
+      manapun yang belum tercentang) supaya jumlah tercentang selalu
+      mendekati target.length walau nama di picker berbeda dari tersimpan. */
+  async function pickGroupsByRows(picker, targets) {
+    const added = new Set();
+    const matched = new Map();
+    const seenNames = new Set();
+    const usedRows = new Set();
+    let scroller = pickerScroller(picker);
+    let stuck = 0;
+    for (let pass = 0; pass < PICKER_SCROLL_PASSES; pass++) {
+      for (const { row, name, checked } of listPickerRows(picker)) {
+        seenNames.add(name);
+        if (usedRows.has(row)) continue;
+        let bestI = -1;
+        let bestScore = 0;
+        targets.forEach((t, i) => {
+          if (added.has(i)) return;
+          const s = matchScore(t.key, name);
+          if (s > bestScore) {
+            bestScore = s;
+            bestI = i;
+          }
+        });
+        if (bestI < 0) continue;
+        matched.set(bestI, name);
+        usedRows.add(row);
+        if (checked) {
+          added.add(bestI);
+          continue;
+        }
+        /* Node bisa stale setelah re-render FB (scroll/centang) — cek ulang. */
+        if (!document.contains(row)) continue;
+        try {
+          await humanScrollToEl(row);
+        } catch (e) {
+          /* scroll gagal, langsung coba klik */
+        }
+        if (!document.contains(row)) continue;
+        if (await clickRowFlexible(row, countCheckedRows(picker))) added.add(bestI);
+        await humanClickDelay();
+      }
+      if (added.size >= targets.length) break;
+      /* Scroll 1 langkah signifikan + jeda render (lazy-render FB). */
+      if (scroller) {
+        const top = scroller.scrollTop || 0;
+        scroller.scrollTop = top + Math.max(400, Math.floor((scroller.clientHeight || 600) * 0.7));
+        scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+        await sleep(randInt(700, 1100));
+        const moved = (scroller.scrollTop || 0) - top;
+        const bottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
+        stuck = moved <= 2 && !bottom ? stuck + 1 : 0;
+        if (bottom) stuck++;
+        if (stuck >= PICKER_STUCK_LIMIT) break;
+      } else {
+        await sleep(randInt(700, 1100));
+        stuck++;
+        if (stuck >= PICKER_STUCK_LIMIT + 2) break;
+      }
+    }
+    /* FALLBACK: nama tidak cocok tapi baris kosong masih tersedia -> pakai
+       saja supaya picker tidak selesai dengan nol centang (temuan lapangan:
+       nama baris picker FB kadang tidak identik dengan nama tersimpan). */
+    if (added.size < targets.length) {
+      for (const { row, name, checked } of listPickerRows(picker)) {
+        if (added.size >= targets.length) break;
+        if (usedRows.has(row) || checked) continue;
+        const nextI = [...targets.keys()].find((i) => !added.has(i));
+        if (nextI === undefined) break;
+        usedRows.add(row);
+        if (!document.contains(row)) continue;
+        try {
+          await humanScrollToEl(row);
+        } catch (e) {
+          /* scroll gagal, langsung coba klik */
+        }
+        if (!document.contains(row)) continue;
+        if (await clickRowFlexible(row, countCheckedRows(picker))) {
+          added.add(nextI);
+          matched.set(nextI, `${name} (fallback)`);
+        }
+        await humanClickDelay();
+      }
+    }
+    return { added, matched, rowsSeen: seenNames.size };
+  }
+
+  /** Ketik teks di kolom search picker KARAKTER-PER-KARAKTER (human-like).
+      Set-value sekaligus TIDAK memicu filter React controlled input FB.
+      Verifikasi search.value benar-benar berisi teks; ulangi maks 2x. */
+  async function typePickerSearch(search, text) {
+    const want = String(text || "");
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        search.focus();
+      } catch (e) {
+        /* fokus gagal tetap lanjut */
+      }
+      try {
+        document.execCommand("selectAll", false, null);
+        document.execCommand("delete", false, null);
+      } catch (e2) {
+        /* clear gagal, fallback setter di bawah */
+      }
+      if (search.value) {
+        try {
+          Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, "value").set.call(search, "");
+          search.dispatchEvent(new Event("input", { bubbles: true }));
+        } catch (e3) {
+          /* abaikan */
+        }
+      }
+      let ok = true;
+      for (const ch of Array.from(want)) {
+        search.dispatchEvent(new KeyboardEvent("keydown", { key: ch, bubbles: true, cancelable: true }));
+        let inserted = false;
+        try {
+          inserted = document.execCommand("insertText", false, ch);
+        } catch (e4) {
+          inserted = false;
+        }
+        if (!inserted) {
+          try {
+            Object.getOwnPropertyDescriptor(root.HTMLInputElement.prototype, "value").set.call(search, (search.value || "") + ch);
+            search.dispatchEvent(new Event("input", { bubbles: true }));
+          } catch (e5) {
+            ok = false;
+          }
+        }
+        search.dispatchEvent(new KeyboardEvent("keyup", { key: ch, bubbles: true, cancelable: true }));
+        await sleep(randInt(40, 90));
+      }
+      search.dispatchEvent(new Event("change", { bubbles: true }));
+      if (ok && normText(search.value) === normText(want)) return true;
+      await sleep(400);
+    }
+    return normText(search.value) === normText(want);
+  }
+
+  /** Satu grup via kolom search picker: ketik nama -> tunggu hasil
+      menyempit -> cocokkan baris (matchScore) -> klik fleksibel ->
+      verifikasi tercentang -> kosongkan search. Return { ok }. */
+  async function pickOneGroupBySearch(picker, search, target) {
+    const before = countCheckedRows(picker);
+    /* Diagnostik: isi picker terbaca + hasil pencocokan nama, supaya
+       kegagalan "baris tidak terbaca" vs "nama tidak cocok" langsung
+       terlihat dari console tanpa inspeksi DOM manual. */
+    const seen = listPickerRows(picker);
+    console.log(`[FB-AutoPoster] Picker: ${seen.length} baris ter-render. Contoh: ${seen.slice(0, 3).map((r) => `"${r.name.slice(0, 40)}"${r.checked ? " ✔" : ""}`).join(", ") || "(kosong)"}. Target: "${target.key.slice(0, 40)}" (skor terbaik: ${Math.max(0, ...seen.map((r) => matchScore(target.key, r.name)))}).`);
+    if (!(await typePickerSearch(search, target.key))) {
+      console.log(`[FB-AutoPoster] Search "${target.key}" tidak terketik penuh (value="${search.value}") - tetap dicoba.`);
+    }
+    const found = await waitFor(
+      function () {
+        for (const r of listPickerRows(picker)) {
+          if (matchScore(target.key, r.name) > 0) return r;
+        }
+        return null;
+      },
+      { timeoutMs: PICKER_SEARCH_TIMEOUT_MS, label: `hasil search "${target.key}"` }
+    ).catch(function () { return null; });
+    if (!found) {
+      clearPickerSearch(search);
+      return { ok: false };
+    }
+    if (found.checked) {
+      clearPickerSearch(search);
+      return { ok: true };
+    }
+    try {
+      await humanScrollToEl(found.row);
+    } catch (e6) {
+      /* scroll gagal, langsung coba klik */
+    }
+    const okClick = await clickRowFlexible(found.row, before);
+    clearPickerSearch(search);
+    return { ok: okClick };
+  }
+
+  /** Tutup picker: tombol "Selesai/Done" dulu, fallback panah mundur,
+      fallback terakhir tombol Escape.
+      TEMUAN LAPANGAN: referensi picker bisa STALE (menghapus search /
+      mencentang baris me-re-render dialog FB), jadi setiap percobaan
+      tutup WAJIB re-query picker fresh dari findGroupPicker() — jangan
+      percaya sub-pohon `picker` lama yang sudah terlepas dari DOM. */
+  async function closeGroupPicker(picker) {
+    const pressEscape = async () => {
+      const p = findGroupPicker() || picker;
+      const target = (p && document.contains(p) ? p : null) || document.activeElement || document.body;
+      for (const type of ["keydown", "keyup"]) {
+        target.dispatchEvent(new KeyboardEvent(type, { key: "Escape", code: "Escape", keyCode: 27, which: 27, bubbles: true, cancelable: true }));
+      }
+    };
+    const tryClose = async () => {
+      const fresh = findGroupPicker();
+      const p = fresh && document.contains(fresh) ? fresh : (document.contains(picker) ? picker : null);
+      if (!p) return "sudah-tutup";
+      const done = findPickerDone(p);
+      const back = done ? null : findPickerBack(p);
+      const closer = done || back;
+      if (!closer) return "tanpa-tombol";
+      try {
+        await humanScrollToEl(closer);
+      } catch (e) {
+        /* scroll gagal tetap coba klik */
+      }
+      closer.click();
+      return done ? "selesai" : "mundur";
+    };
+
+    const how = await tryClose();
+    console.log(`[FB-AutoPoster] Tutup picker: ${how}.`);
+    const closedLabel = 'popup "Tambahkan grup" tertutup';
+    /* dialogIsOpen: dialog fade-out (visibility/opacity) dianggap tertutup. */
+    const isOpen = () => {
+      const p = findGroupPicker();
+      return p && dialogIsOpen(p);
+    };
+    await waitFor(() => (isOpen() ? null : true), { timeoutMs: 10000, label: closedLabel }).catch(async () => {
+      await tryClose();
+      await sleep(600);
+      await waitFor(() => (isOpen() ? null : true), { timeoutMs: 8000, label: `${closedLabel} (retry)` }).catch(async () => {
+        /* FALLBACK terakhir: Escape (temuan lapangan: klik Selesai kadang
+           tidak ditangani FB bila fokus berada di kolom search). */
+        console.log("[FB-AutoPoster] Tutup picker: klik gagal, coba tombol Escape.");
+        await pressEscape();
+        await sleep(600);
+        await pressEscape();
+        await waitFor(() => (isOpen() ? null : true), { timeoutMs: 8000, label: `${closedLabel} (Escape)` });
+      });
+    });
+  }
+
+  /** Klik tombol FB dengan rangkaian event React-realistis (temuan
+      lapangan #5): .click() polos sering tidak memicu handler React FB
+      (pointer/mouse level rendah). Semua event bubbles ke atas. */
+  async function clickButtonRealistic(el) {
+    const rect = el.getBoundingClientRect ? el.getBoundingClientRect() : null;
+    const opts = {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      view: root,
+    };
+    if (rect) {
+      opts.clientX = Math.round(rect.left + rect.width / 2);
+      opts.clientY = Math.round(rect.top + rect.height / 2);
+      opts.screenX = opts.clientX;
+      opts.screenY = opts.clientY;
+    }
+    const Pointer = root.PointerEvent || root.MouseEvent;
+    const Mouse = root.MouseEvent;
+    try { el.dispatchEvent(new Pointer("pointerover", { ...opts, pointerType: "mouse" })); } catch (e) { /* abaikan */ }
+    try { el.dispatchEvent(new Mouse("mouseover", opts)); } catch (e2) { /* abaikan */ }
+    try { el.dispatchEvent(new Pointer("pointerdown", { ...opts, pointerType: "mouse", buttons: 1 })); } catch (e3) { /* abaikan */ }
+    try { el.dispatchEvent(new Mouse("mousedown", { ...opts, buttons: 1 })); } catch (e4) { /* abaikan */ }
+    try { if (typeof el.focus === "function") el.focus(); } catch (e5) { /* abaikan */ }
+    try { el.dispatchEvent(new Pointer("pointerup", { ...opts, pointerType: "mouse", buttons: 1 })); } catch (e6) { /* abaikan */ }
+    try { el.dispatchEvent(new Mouse("mouseup", { ...opts, buttons: 1 })); } catch (e7) { /* abaikan */ }
+    try { el.click(); } catch (e8) { /* abaikan */ }
+  }
+
+  async function addExtraGroups(dialog, extraGroups) {
+    const added = [];
+    const failed = [];
+    const list = (extraGroups || []).slice(0, EXTRA_GROUPS_PER_POST);
+    if (!list.length) return { added, failed };
+
+    const btn = await waitFor(() => findAddGroupsButton(dialog), { timeoutMs: ADD_GROUPS_TIMEOUT_MS, label: 'tombol "Tambahkan grup" di composer' });
+    const btnLabel = normText((btn.getAttribute && btn.getAttribute("aria-label")) || btn.textContent || "").slice(0, 60);
+
+    /* Klik + verifikasi picker muncul; ulangi maks 3x (temuan #5:
+       klik polos kadang tidak ditangani handler React FB). */
+    let picker = null;
+    for (let attempt = 1; attempt <= 3 && !picker; attempt++) {
+      try {
+        await humanScrollToEl(btn);
+      } catch (e) {
+        /* scroll gagal, tetap coba klik */
+      }
+      await clickButtonRealistic(btn);
+      await sleep(randInt(700, 1300));
+      picker = findGroupPicker();
+      console.log(`[FB-AutoPoster] Klik tombol "${btnLabel}" (percobaan ${attempt}/3): picker ${picker ? "MUNCUL" : "belum muncul"}.`);
+    }
+    if (!picker) {
+      const vis = Array.from(document.querySelectorAll('div[role="dialog"]')).filter(isElementVisible);
+      const titles = vis.map((d) => {
+        const t = normText((d.textContent || "").slice(0, 120));
+        return t ? `"${t}..."` : "(tanpa teks)";
+      });
+      throw new Error(`Tombol "${btnLabel}" tidak membuka popup setelah 3 percobaan. Dialog terlihat: ${vis.length} ${titles.join(" | ")}`);
+    }
+
+    await sleep(randInt(600, 1100));
+
+    /* SEARCH-FIRST (user): ketik nama grup target di kolom "Cari grup"
+       (ketikan natural per karakter - set-value sekaligus TIDAK memicu
+       filter React controlled input). Fallback enumerasi+scroll hanya
+       bila kolom search tidak ditemukan. */
+    const targets = list.map((g) => ({ url: g.url || g.name, key: normText(g.name || g.url || "") }));
+    const search = findPickerSearch(picker);
+    if (search) {
+      for (const t of targets) {
+        const r = await pickOneGroupBySearch(picker, search, t);
+        if (r.ok) added.push(t.url);
+        else failed.push(t.url);
+      }
+      console.log(`[FB-AutoPoster] Picker tambah-grup (search): ${added.length}/${targets.length} tercentang.`);
+      if (failed.length) console.log(`[FB-AutoPoster] Search gagal untuk: ${failed.join(", ")}`);
+      await closeGroupPicker(picker);
+      return { added, failed, rowsSeen: -1 };
+    }
+    /* FALLBACK: searchbox tidak ada -> enumerasi baris + scroll. */
+    const { added: addedIdx, matched, rowsSeen } = await pickGroupsByRows(picker, targets);
+    targets.forEach((t, i) => {
+      if (addedIdx.has(i)) added.push(t.url);
+      else failed.push(t.url);
+    });
+    console.log(`[FB-AutoPoster] Picker tambah-grup (fallback enumerasi): ${rowsSeen} baris terbaca, ${added.length}/${targets.length} tercentang.`);
+    if (failed.length) console.log(`[FB-AutoPoster] Grup tambahan tidak ditemukan di picker: ${failed.join(", ")}`);
+    /* Jeda "cek ulang sudah cukup belum ya" sebelum menutup picker
+       (adopsi tambahGrupFB: M penuh + visual check manusia). */
+    await sleep(randInt(1500, 3500));
+    await closeGroupPicker(picker);
+    return { added, failed, rowsSeen };
+  }
+
+  /** Posting satu materi: media-dulu + caption + TAMBAHAN GRUP, lalu submit.
+      `autoPost`: true -> klik Posting otomatis + verifikasi composer
+      tertutup; false -> jendela manual MANUAL_POST_WINDOW_MS (tambah grup
+      TETAP otomatis, hanya klik Posting akhir yang manual).
+      `extraGroups`: array {name,url} maks EXTRA_GROUPS_PER_POST, dicentang
+      via picker "Tambahkan grup". Return { ok, added, failed }. */
+  async function postToGroup(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true, extraGroups = []) {
     // 1-3. Media DULU (GATE) -> editor ulang -> caption Lexical anti-dobel
     await composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName);
+
+    // 3b. TAMBAHAN GRUP (selalu otomatis): picker "Tambahkan grup"
+    let added = [];
+    let failed = [];
+    let rowsSeen = 0;
+    if (extraGroups && extraGroups.length) {
+      const res = await addExtraGroups(findComposerDialog(), extraGroups);
+      added = res.added;
+      failed = res.failed;
+      rowsSeen = res.rowsSeen || 0;
+      /* Picker bisa me-re-render composer Lexical (sama seperti attach
+         media): pastikan caption masih utuh, ketik ulang bila berubah. */
+      const editor = await findEditor(8000);
+      if (!editor) throw new Error("Editor caption hilang setelah menutup popup Tambahkan grup.");
+      const expected = normText(parse(caption || ""));
+      if (expected && getEditorText(editor) !== expected) await typeCaption(editor, expected);
+    }
 
     // 4. Jeda baca manusiawi sebelum submit
     await sleep(randInt(800, 1600));
 
     // 5. MODE MANUAL: jangan klik Posting — beri user jendela waktu.
     if (!autoPost) {
-      console.log(`[FB-AutoPoster] Mode manual: media+caption siap di editor. Menunggu ${MANUAL_POST_WINDOW_MS / 1000}s agar user klik Posting sendiri.`);
+      console.log(`[FB-AutoPoster] Mode manual: media+caption+${added.length} grup tambahan siap di editor. Menunggu ${MANUAL_POST_WINDOW_MS / 1000}s agar user klik Posting sendiri.`);
       await sleep(MANUAL_POST_WINDOW_MS);
-      return true;
+      return { ok: true, added, failed, rowsSeen };
     }
 
     // 6. MODE AUTOPOSTING: klik tombol Posting
@@ -250,8 +681,8 @@
     });
 
     await sleep(randInt(1500, 2600));
-    return true;
+    return { ok: true, added, failed, rowsSeen };
   }
 
-  content.posting = { postToGroup, openComposer, typeCaption, composeMediaAndCaption };
+  content.posting = { postToGroup, openComposer, typeCaption, composeMediaAndCaption, addExtraGroups };
 })(globalThis);

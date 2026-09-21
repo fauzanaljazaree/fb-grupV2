@@ -38,6 +38,20 @@
   const FILE_INPUT = 'input[type="file"]';
   const COMPOSER_DIALOG_LABELED = 'div[role="dialog"][aria-label="Buat postingan"]';
 
+  /* ---------------- PICKER "TAMBAHKAN GRUP" ----------------
+     HANYA teks/role/placeholder — tanpa class dinamis FB.
+     Semua keyword ID+EN, dipakai case-insensitive (guideline §10). */
+  /** Tombol "+ Tambahkan grup ∨" di header composer. */
+  const ADD_GROUPS_BUTTON_KW = ["tambahkan grup", "add groups", "tambah grup"];
+  /** Judul dialog picker ("Tambahkan grup" / "Add groups"). */
+  const GROUP_PICKER_TITLE_KW = ["tambahkan grup", "add groups", "tambah grup"];
+  /** Kolom search di picker ("Cari grup" / "Search"). */
+
+  const GROUP_PICKER_SEARCH_KW = ["cari grup", "search groups", "search"];
+
+  /** Tombol tutup picker di bawah ("Selesai" / "Done"). */
+  const GROUP_PICKER_DONE_KW = ["selesai", "done"];
+
   content.selectors = {
     SYSTEM_GROUP_URL,
     GRUP_LINK,
@@ -51,5 +65,9 @@
     CAPTION_EDITOR_LEXICAL,
     FILE_INPUT,
     COMPOSER_DIALOG_LABELED,
+    ADD_GROUPS_BUTTON_KW,
+    GROUP_PICKER_TITLE_KW,
+    GROUP_PICKER_SEARCH_KW,
+    GROUP_PICKER_DONE_KW,
   };
 })(globalThis);

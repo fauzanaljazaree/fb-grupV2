@@ -50,8 +50,14 @@
           /* msg.autoPost = checkbox "autoposting" dashboard. false ->
              postToGroup hanya menyiapkan media+caption lalu menunggu
              jendela manual (MANUAL_POST_WINDOW_MS) tanpa klik Posting. */
-          const ok = await postToGroup(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName, msg.autoPost !== false);
-          sendResponse({ ok, error: ok ? null : "Posting gagal" });
+          const r = await postToGroup(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName, msg.autoPost !== false, msg.extraGroups || []);
+          sendResponse({
+            ok: !!(r && r.ok),
+            added: (r && r.added) || [],
+            failed: (r && r.failed) || [],
+            rowsSeen: (r && r.rowsSeen) || 0,
+            error: r && r.ok ? null : "Posting gagal",
+          });
         } else if (msg.type === MSG.PING) {
           sendResponse({ ok: true, pong: true });
         } else {
