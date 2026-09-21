@@ -246,6 +246,15 @@
       .toLowerCase();
   }
 
+  /** Normalisasi EXACT untuk pencocokan nama grup (trim + spasi tunggal,
+      TANPA lowercase) — nama tersimpan di Manajemen Data Grup mempertahankan
+      case asli FB, jadi tahap pencocokan pertama harus case-sensitive. */
+  function normExactText(s) {
+    return String(s || "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
   /** Elemen diklik yang teks/aria-label-nya mengandung salah satu keyword.
       Leaf node (span/p) dipanjat ke induk div[role="button"] / div[tabindex="0"]
       sesuai guideline §10.3 — jangan pernah .click() pada leaf. */
@@ -426,7 +435,8 @@
       if (!isGroupCheckbox(cb)) continue;
       const wrapper = cb.closest('[role="button"]') || cb;
       const name = normPickerText((wrapper.textContent || "").replace(ROW_SUBTITLE_RE, ""));
-      out.push({ checkbox: cb, row: wrapper, name, checked: cb.checked || (cb.getAttribute("aria-checked") || "").toLowerCase() === "true" });
+      const nameExact = normExactText((wrapper.textContent || "").replace(ROW_SUBTITLE_RE, ""));
+      out.push({ checkbox: cb, row: wrapper, name, nameExact, checked: cb.checked || (cb.getAttribute("aria-checked") || "").toLowerCase() === "true" });
     }
     return out;
   }
@@ -448,7 +458,7 @@
       if (!isElementVisible(row)) continue;
       const name = normPickerText((row.textContent || "").replace(ROW_SUBTITLE_RE, ""));
       if (!name) continue;
-      rows.push({ row, name, checked: isRowChecked(row) });
+      rows.push({ row, name, nameExact: normExactText((row.textContent || "").replace(ROW_SUBTITLE_RE, "")), checked: isRowChecked(row) });
     }
     /* PORTAL-SAFE (adopsi tambahGrupFB): bila di dalam picker TIDAK ada
        baris sama sekali, kemungkinan besar FB me-render daftar grup via
@@ -459,7 +469,7 @@
       for (const item of listGroupCheckboxesDocWide()) {
         if (!item.name || seen.has(item.row)) continue;
         seen.add(item.row);
-        rows.push({ row: item.row, name: item.name, checked: item.checked, checkbox: item.checkbox });
+        rows.push({ row: item.row, name: item.name, nameExact: item.nameExact, checked: item.checked, checkbox: item.checkbox });
       }
     }
     return rows;
@@ -615,6 +625,7 @@
     findPickerBack,
     isRowChecked,
     countCheckedRows,
+    normExactText,
     isGroupCheckbox,
     listGroupCheckboxesDocWide,
     dialogIsOpen,

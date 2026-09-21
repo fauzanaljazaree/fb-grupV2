@@ -19,6 +19,7 @@ importScripts(
   "../shared/random.js",
   "../shared/time.js",
   "../shared/storage.js",
+  "../shared/materialkey.js",
   "state.js",
   "power.js",
   "messaging.js",

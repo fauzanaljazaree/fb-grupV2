@@ -292,93 +292,81 @@
     return isRowChecked(row) || countCheckedRows(row.closest('div[role="dialog"]') || row) > checkedBefore;
   }
 
-  /** Pilih sekumpulan grup target di picker TANPA search: enumerasi
-      baris ter-render -> cocokkan nama (skor berlapis) -> klik fleksibel
-      -> scroll lazy-render sampai semua ketemu / daftar mentok.
+  /** Pilih sekumpulan grup target di picker TANPA search, DUA PASS:
+      PASS 1 (exact): nama tersimpan === nama baris picker, case-sensitive
+      (keduanya via normExactText — nama storage mempertahankan case asli FB).
+      PASS 2 (fuzzy): matchScore (persis-lowercase > contains > kata kunci)
+      hanya untuk target yang belum ketemu di pass 1.
+      TANPA fallback baris sembarang (temuan lapangan: fallback lama
+      mencentang baris teratas mana pun sehingga grup salah). Target yang
+      tidak ketemu di kedua pass = failed -> ditandai ❌ di tabel dashboard.
       Return { added: Set<index>, matched: Map<index, namaBaris>,
-               rowsSeen: jumlah nama baris unik terbaca }.
-      Target yang tidak ketemu nama-nya TETAP diisi via FALLBACK (baris
-      manapun yang belum tercentang) supaya jumlah tercentang selalu
-      mendekati target.length walau nama di picker berbeda dari tersimpan. */
+               rowsSeen: jumlah nama baris unik terbaca }. */
   async function pickGroupsByRows(picker, targets) {
     const added = new Set();
     const matched = new Map();
     const seenNames = new Set();
-    const usedRows = new Set();
     let scroller = pickerScroller(picker);
-    let stuck = 0;
-    for (let pass = 0; pass < PICKER_SCROLL_PASSES; pass++) {
-      for (const { row, name, checked } of listPickerRows(picker)) {
-        seenNames.add(name);
-        if (usedRows.has(row)) continue;
-        let bestI = -1;
-        let bestScore = 0;
-        targets.forEach((t, i) => {
-          if (added.has(i)) return;
-          const s = matchScore(t.key, name);
-          if (s > bestScore) {
-            bestScore = s;
-            bestI = i;
-          }
-        });
-        if (bestI < 0) continue;
-        matched.set(bestI, name);
-        usedRows.add(row);
-        if (checked) {
-          added.add(bestI);
-          continue;
-        }
-        /* Node bisa stale setelah re-render FB (scroll/centang) — cek ulang. */
-        if (!document.contains(row)) continue;
-        try {
-          await humanScrollToEl(row);
-        } catch (e) {
-          /* scroll gagal, langsung coba klik */
-        }
-        if (!document.contains(row)) continue;
-        if (await clickRowFlexible(row, countCheckedRows(picker))) added.add(bestI);
-        await humanClickDelay();
-      }
+    for (const pass of ["exact", "fuzzy"]) {
       if (added.size >= targets.length) break;
-      /* Scroll 1 langkah signifikan + jeda render (lazy-render FB). */
-      if (scroller) {
-        const top = scroller.scrollTop || 0;
-        scroller.scrollTop = top + Math.max(400, Math.floor((scroller.clientHeight || 600) * 0.7));
-        scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
-        await sleep(randInt(700, 1100));
-        const moved = (scroller.scrollTop || 0) - top;
-        const bottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
-        stuck = moved <= 2 && !bottom ? stuck + 1 : 0;
-        if (bottom) stuck++;
-        if (stuck >= PICKER_STUCK_LIMIT) break;
-      } else {
-        await sleep(randInt(700, 1100));
-        stuck++;
-        if (stuck >= PICKER_STUCK_LIMIT + 2) break;
-      }
-    }
-    /* FALLBACK: nama tidak cocok tapi baris kosong masih tersedia -> pakai
-       saja supaya picker tidak selesai dengan nol centang (temuan lapangan:
-       nama baris picker FB kadang tidak identik dengan nama tersimpan). */
-    if (added.size < targets.length) {
-      for (const { row, name, checked } of listPickerRows(picker)) {
+      const usedThisPass = new Set();
+      let stuck = 0;
+      for (let p = 0; p < PICKER_SCROLL_PASSES; p++) {
+        for (const { row, name, nameExact, checked } of listPickerRows(picker)) {
+          seenNames.add(name);
+          if (usedThisPass.has(row)) continue;
+          let bestI = -1;
+          if (pass === "exact") {
+            bestI = targets.findIndex((t, i) => !added.has(i) && nameExact && nameExact === t.keyExact);
+          } else {
+            let bestScore = 0;
+            targets.forEach((t, i) => {
+              if (added.has(i)) return;
+              const s = matchScore(t.key, name);
+              if (s > bestScore) {
+                bestScore = s;
+                bestI = i;
+              }
+            });
+          }
+          if (bestI < 0) continue;
+          usedThisPass.add(row);
+          if (checked) {
+            added.add(bestI);
+            matched.set(bestI, nameExact || name);
+            continue;
+          }
+          /* Node bisa stale setelah re-render FB (scroll/centang) — cek ulang. */
+          if (!document.contains(row)) continue;
+          try {
+            await humanScrollToEl(row);
+          } catch (e) {
+            /* scroll gagal, langsung coba klik */
+          }
+          if (!document.contains(row)) continue;
+          if (await clickRowFlexible(row, countCheckedRows(picker))) {
+            added.add(bestI);
+            matched.set(bestI, nameExact || name);
+          }
+          await humanClickDelay();
+        }
         if (added.size >= targets.length) break;
-        if (usedRows.has(row) || checked) continue;
-        const nextI = [...targets.keys()].find((i) => !added.has(i));
-        if (nextI === undefined) break;
-        usedRows.add(row);
-        if (!document.contains(row)) continue;
-        try {
-          await humanScrollToEl(row);
-        } catch (e) {
-          /* scroll gagal, langsung coba klik */
+        /* Scroll 1 langkah signifikan + jeda render (lazy-render FB). */
+        if (scroller) {
+          const top = scroller.scrollTop || 0;
+          scroller.scrollTop = top + Math.max(400, Math.floor((scroller.clientHeight || 600) * 0.7));
+          scroller.dispatchEvent(new Event("scroll", { bubbles: true }));
+          await sleep(randInt(700, 1100));
+          const moved = (scroller.scrollTop || 0) - top;
+          const bottom = scroller.scrollTop + scroller.clientHeight >= scroller.scrollHeight - 8;
+          stuck = moved <= 2 && !bottom ? stuck + 1 : 0;
+          if (bottom) stuck++;
+          if (stuck >= PICKER_STUCK_LIMIT) break;
+        } else {
+          await sleep(randInt(700, 1100));
+          stuck++;
+          if (stuck >= PICKER_STUCK_LIMIT + 2) break;
         }
-        if (!document.contains(row)) continue;
-        if (await clickRowFlexible(row, countCheckedRows(picker))) {
-          added.add(nextI);
-          matched.set(nextI, `${name} (fallback)`);
-        }
-        await humanClickDelay();
       }
     }
     return { added, matched, rowsSeen: seenNames.size };
@@ -445,14 +433,20 @@
        kegagalan "baris tidak terbaca" vs "nama tidak cocok" langsung
        terlihat dari console tanpa inspeksi DOM manual. */
     const seen = listPickerRows(picker);
-    console.log(`[FB-AutoPoster] Picker: ${seen.length} baris ter-render. Contoh: ${seen.slice(0, 3).map((r) => `"${r.name.slice(0, 40)}"${r.checked ? " ✔" : ""}`).join(", ") || "(kosong)"}. Target: "${target.key.slice(0, 40)}" (skor terbaik: ${Math.max(0, ...seen.map((r) => matchScore(target.key, r.name)))}).`);
+    const exactSeen = seen.some((r) => r.nameExact && r.nameExact === target.keyExact);
+    console.log(`[FB-AutoPoster] Picker: ${seen.length} baris ter-render${exactSeen ? " (nama EXACT ada)" : ""}. Contoh: ${seen.slice(0, 3).map((r) => `"${r.name.slice(0, 40)}"${r.checked ? " ✔" : ""}`).join(", ") || "(kosong)"}. Target: "${target.keyExact.slice(0, 40)}" (skor terbaik: ${Math.max(0, ...seen.map((r) => matchScore(target.key, r.name)))}).`);
     if (!(await typePickerSearch(search, target.key))) {
       console.log(`[FB-AutoPoster] Search "${target.key}" tidak terketik penuh (value="${search.value}") - tetap dicoba.`);
     }
     const found = await waitFor(
       function () {
+        /* TAHAP 1: exact case-sensitive (nama storage === nama baris). */
         for (const r of listPickerRows(picker)) {
-          if (matchScore(target.key, r.name) > 0) return r;
+          if (r.nameExact && r.nameExact === target.keyExact) return { row: r, how: "exact" };
+        }
+        /* TAHAP 2: fuzzy (persis-lowercase > contains > kata kunci). */
+        for (const r of listPickerRows(picker)) {
+          if (matchScore(target.key, r.name) > 0) return { row: r, how: "fuzzy" };
         }
         return null;
       },
@@ -462,18 +456,18 @@
       clearPickerSearch(search);
       return { ok: false };
     }
-    if (found.checked) {
+    if (found.row.checked) {
       clearPickerSearch(search);
-      return { ok: true };
+      return { ok: true, name: found.row.nameExact || found.row.name, how: found.how };
     }
     try {
-      await humanScrollToEl(found.row);
+      await humanScrollToEl(found.row.row);
     } catch (e6) {
       /* scroll gagal, langsung coba klik */
     }
-    const okClick = await clickRowFlexible(found.row, before);
+    const okClick = await clickRowFlexible(found.row.row, before);
     clearPickerSearch(search);
-    return { ok: okClick };
+    return { ok: okClick, name: found.row.nameExact || found.row.name, how: found.how };
   }
 
   /** Tutup picker: tombol "Selesai/Done" dulu, fallback panah mundur,
@@ -596,25 +590,38 @@
     /* SEARCH-FIRST (user): ketik nama grup target di kolom "Cari grup"
        (ketikan natural per karakter - set-value sekaligus TIDAK memicu
        filter React controlled input). Fallback enumerasi+scroll hanya
-       bila kolom search tidak ditemukan. */
-    const targets = list.map((g) => ({ url: g.url || g.name, key: normText(g.name || g.url || "") }));
+       bila kolom search tidak ditemukan.
+       Pencocokan nama DUA TAHAP: exact case-sensitive dulu (keyExact,
+       nama storage === nama baris picker), lalu fuzzy (matchScore).
+       TANPA fallback baris sembarang. addedNames = nama baris picker
+       yang benar-benar tercentang (untuk log background). */
+    const targets = list.map((g) => ({ url: g.url || g.name, key: normText(g.name || g.url || ""), keyExact: normText(g.name || g.url || "") }));
+    const addedNames = [];
     const search = findPickerSearch(picker);
     if (search) {
       for (const t of targets) {
         const r = await pickOneGroupBySearch(picker, search, t);
-        if (r.ok) added.push(t.url);
-        else failed.push(t.url);
+        if (r.ok) {
+          added.push(t.url);
+          addedNames.push({ url: t.url, name: r.name || t.keyExact, how: r.how || "?" });
+        } else {
+          failed.push(t.url);
+        }
       }
       console.log(`[FB-AutoPoster] Picker tambah-grup (search): ${added.length}/${targets.length} tercentang.`);
       if (failed.length) console.log(`[FB-AutoPoster] Search gagal untuk: ${failed.join(", ")}`);
       await closeGroupPicker(picker);
-      return { added, failed, rowsSeen: -1 };
+      return { added, failed, addedNames, rowsSeen: -1 };
     }
     /* FALLBACK: searchbox tidak ada -> enumerasi baris + scroll. */
     const { added: addedIdx, matched, rowsSeen } = await pickGroupsByRows(picker, targets);
     targets.forEach((t, i) => {
-      if (addedIdx.has(i)) added.push(t.url);
-      else failed.push(t.url);
+      if (addedIdx.has(i)) {
+        added.push(t.url);
+        addedNames.push({ url: t.url, name: matched.get(i) || t.keyExact, how: matched.get(i) === t.keyExact ? "exact" : "fuzzy" });
+      } else {
+        failed.push(t.url);
+      }
     });
     console.log(`[FB-AutoPoster] Picker tambah-grup (fallback enumerasi): ${rowsSeen} baris terbaca, ${added.length}/${targets.length} tercentang.`);
     if (failed.length) console.log(`[FB-AutoPoster] Grup tambahan tidak ditemukan di picker: ${failed.join(", ")}`);
@@ -622,7 +629,7 @@
        (adopsi tambahGrupFB: M penuh + visual check manusia). */
     await sleep(randInt(1500, 3500));
     await closeGroupPicker(picker);
-    return { added, failed, rowsSeen };
+    return { added, failed, addedNames, rowsSeen };
   }
 
   /** Posting satu materi: media-dulu + caption + TAMBAHAN GRUP, lalu submit.
@@ -630,7 +637,9 @@
       tertutup; false -> jendela manual MANUAL_POST_WINDOW_MS (tambah grup
       TETAP otomatis, hanya klik Posting akhir yang manual).
       `extraGroups`: array {name,url} maks EXTRA_GROUPS_PER_POST, dicentang
-      via picker "Tambahkan grup". Return { ok, added, failed }. */
+      via picker "Tambahkan grup". Return { ok, added, failed, addedNames,
+      rowsSeen } — addedNames = [{url, name, how}] nama baris picker yang
+      tercentang (untuk log background). */
   async function postToGroup(caption, mediaDataUrl, mediaMime, mediaName, autoPost = true, extraGroups = []) {
     // 1-3. Media DULU (GATE) -> editor ulang -> caption Lexical anti-dobel
     await composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName);
@@ -638,11 +647,13 @@
     // 3b. TAMBAHAN GRUP (selalu otomatis): picker "Tambahkan grup"
     let added = [];
     let failed = [];
+    let addedNames = [];
     let rowsSeen = 0;
     if (extraGroups && extraGroups.length) {
       const res = await addExtraGroups(findComposerDialog(), extraGroups);
       added = res.added;
       failed = res.failed;
+      addedNames = res.addedNames || [];
       rowsSeen = res.rowsSeen || 0;
       /* Picker bisa me-re-render composer Lexical (sama seperti attach
          media): pastikan caption masih utuh, ketik ulang bila berubah. */
@@ -659,7 +670,7 @@
     if (!autoPost) {
       console.log(`[FB-AutoPoster] Mode manual: media+caption+${added.length} grup tambahan siap di editor. Menunggu ${MANUAL_POST_WINDOW_MS / 1000}s agar user klik Posting sendiri.`);
       await sleep(MANUAL_POST_WINDOW_MS);
-      return { ok: true, added, failed, rowsSeen };
+      return { ok: true, added, failed, addedNames, rowsSeen };
     }
 
     // 6. MODE AUTOPOSTING: klik tombol Posting
@@ -681,7 +692,7 @@
     });
 
     await sleep(randInt(1500, 2600));
-    return { ok: true, added, failed, rowsSeen };
+    return { ok: true, added, failed, addedNames, rowsSeen };
   }
 
   content.posting = { postToGroup, openComposer, typeCaption, composeMediaAndCaption, addExtraGroups };

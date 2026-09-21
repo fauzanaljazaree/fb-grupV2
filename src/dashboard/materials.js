@@ -50,10 +50,14 @@
     return list;
   }
 
-  /** Simpan daftar materi ke storage (kegagalan cukup diberi peringatan). */
+  /** Simpan daftar materi ke storage (kegagalan cukup diberi peringatan).
+      HEMAT KUOTA: hanya field ringan (account/caption/mediaName) yang
+      dipersist — blob media (dataUrl) in-memory saja, user memuat ulang
+      folder media di sesi berikutnya. Status ✅/❌ ada di POST_MATRIX. */
   async function saveMaterials() {
     try {
-      await setStrict({ [STORAGE.MATERIALS]: State.materials });
+      const light = State.materials.map((m) => ({ account: m.account || "", caption: m.caption || "", mediaName: m.mediaName || "" }));
+      await setStrict({ [STORAGE.MATERIALS]: light });
     } catch (err) {
       addLog(`Peringatan: materi mungkin tidak tersimpan (${err.message}).`, "warn");
     }

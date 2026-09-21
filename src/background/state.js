@@ -23,6 +23,7 @@
     materials: [],
     groups: [],       // [{name, url}] grup terpilih (urutan tabel)
     results: {},      // {groupUrl: {ok, materialIdx, at, error}}
+    matrix: {},       // {materialKey: {groupUrl: {ok, mi, gi, at, error}}} — persisten (POST_MATRIX)
     settings: { ...DEFAULTS.settings },
     groupUrl: null,   // grup terakhir dipakai (info saja, bukan cache navigasi)
     groupName: null,

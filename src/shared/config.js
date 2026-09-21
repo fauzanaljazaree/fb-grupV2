@@ -43,6 +43,7 @@
     GROUPS: "groups",
     SELECTED_GROUPS: "selectedGroups",
     GROUP_RESULTS: "groupResults",
+    POST_MATRIX: "postMatrix",
     GROUPS_SNAPSHOT: "groupsSnapshot",
     SCAN_STATUS: "scanStatus",
     LAST_SCAN: "lastScan",

@@ -55,6 +55,7 @@
             ok: !!(r && r.ok),
             added: (r && r.added) || [],
             failed: (r && r.failed) || [],
+            addedNames: (r && r.addedNames) || [],
             rowsSeen: (r && r.rowsSeen) || 0,
             error: r && r.ok ? null : "Posting gagal",
           });

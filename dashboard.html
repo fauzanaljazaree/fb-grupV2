@@ -628,6 +628,7 @@
         <div class="toolbar">
           <button class="btn" id="btnScrape">🔄 Ambil Data Grup FB</button>
           <button class="btn danger" id="btnDeleteGroups">🗑️ Hapus yang Dipilih</button>
+          <button class="btn ghost" id="btnClearMatrix">🧹 Hapus Riwayat Status</button>
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px"> <input type="checkbox" id="chkSelectAll" /> Pilih Semua </label>
           <input type="search" id="searchGroup" class="grow" placeholder="Cari nama grup / URL..." />
           <span class="count-chip" id="groupCount">0 grup</span>
@@ -677,6 +678,7 @@
     <script src="src/shared/config.js"></script>
     <script src="src/shared/time.js"></script>
     <script src="src/shared/storage.js"></script>
+    <script src="src/shared/materialkey.js"></script>
 
     <!-- Modul dashboard, sesuai urutan dependensi -->
     <script src="src/dashboard/state.js"></script>

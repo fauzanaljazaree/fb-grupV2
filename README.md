@@ -18,6 +18,7 @@ fbGrup-AutoPosting/
 │  │  ├─ random.js          #   randInt, gauss
 │  │  ├─ time.js            #   nowStamp, todayKey, sleep
 │  │  ├─ storage.js         #   pembungkus Promise chrome.storage.local
+│  │  ├─ materialkey.js     #   fingerprint materi (materialKey utk matriks status)
 │  │  └─ spintax.js         #   parser {varian1|varian2}
 │  ├─ background/           # service worker (modular via importScripts)
 │  │  ├─ service-worker.js  #   entry: listener chrome.* + message router

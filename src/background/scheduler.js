@@ -22,6 +22,7 @@
   const { randInt, gauss } = FBAP.random;
   const { todayKey } = FBAP.time;
   const { get: storageGet, set: storageSet } = FBAP.storage;
+  const { materialKey: calcKey } = FBAP.materialKey;
   const { run, FB_HOME } = background.state;
   const { keepAwakeOn, keepAwakeOff } = background.power;
   const { log, setRunning, broadcastQueueInfo } = background.messaging;
@@ -66,6 +67,10 @@
     run.groupUrl = null;
     run.groupName = null;
     run.results = {};
+    /* Muat matriks status lama (persisten) — TIDAK direset tiap sesi.
+       Caption sama -> materialKey sama -> status ✅/❌ lama tetap tercocokkan
+       walau ekstensi ditutup dan materi di-import ulang. */
+    run.matrix = (await storageGet([STORAGE.POST_MATRIX]))[STORAGE.POST_MATRIX] || {};
     run.postTabId = null;
 
     /* PENTING: persist antrean ke storage agar processNextPost (alarm)
@@ -73,7 +78,7 @@
     await storageSet({
       [STORAGE.QUEUE]: run.queue,
       [STORAGE.CURSOR]: 0,
-      [STORAGE.MATERIALS]: run.materials,
+      [STORAGE.MATERIALS]: run.materials.map((m) => ({ account: m.account || "", caption: m.caption || "", mediaName: m.mediaName || "" })),
       [STORAGE.SETTINGS]: run.settings,
       [STORAGE.GROUPS_SNAPSHOT]: run.groups,
       [STORAGE.GROUP_RESULTS]: {},
@@ -153,12 +158,30 @@
   /* ---------------- PROSES SATU LANGKAH ----------------
      Navigasi natural dilakukan sekali (run.groupUrl masih null),
      lalu tiap alarm berikutnya hanya memproses satu materi. */
+  /** Fingerprint materi ke-m (dipakai sebagai kunci matriks status). */
+  function keyOfMaterial(mi) {
+    const m = run.materials && run.materials[mi];
+    return m ? calcKey(m) : null;
+  }
+
+  /** Index grup di tabel run.groups berdasarkan URL (-1 bila tidak ada). */
+  function giOf(url) {
+    return (run.groups || []).findIndex((g) => g.url === url);
+  }
+
   /** Tandai hasil 1 grup (utama maupun tambahan): persist GROUP_RESULTS +
-      kirim GROUP_RESULT ke dashboard agar tabel update realtime. */
-  async function markGroup(url, ok, mi, error) {
+      POST_MATRIX + kirim GROUP_RESULT ke dashboard agar tabel update realtime.
+      Matriks = {materialKey: {groupUrl: {ok, mi, gi, at, error}}} — persisten
+      lintas sesi; dipakai dashboard untuk menampilkan ✅/❌ per materi (M1, M2, …). */
+  async function markGroup(url, ok, mi, gi, error) {
     if (!url) return;
     run.results[url] = error ? { ok, mi, at: Date.now(), error } : { ok, mi, at: Date.now() };
-    await storageSet({ [STORAGE.GROUP_RESULTS]: run.results });
+    const key = keyOfMaterial(mi);
+    if (key) {
+      run.matrix[key] = run.matrix[key] || {};
+      run.matrix[key][url] = { ok: !!ok, mi: mi || 0, gi: typeof gi === "number" ? gi : -1, at: Date.now(), error: error || "" };
+    }
+    await storageSet({ [STORAGE.GROUP_RESULTS]: run.results, [STORAGE.POST_MATRIX]: run.matrix });
     chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url, ok, mi, error: error || "" }).catch(() => {});
   }
 
@@ -175,7 +198,7 @@
     }
     run.busy = true;
     try {
-      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS]);
+      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX]);
       /* FALLBACK: bila storage kosong (mis. alarm fire sebelum persist),
          pakai state in-memory jangan overwrite dengan nilai kosong. */
       run.queue = st[STORAGE.QUEUE] && st[STORAGE.QUEUE].length ? st[STORAGE.QUEUE] : run.queue || [];
@@ -184,9 +207,26 @@
         ...DEFAULTS.settings,
         ...(st[STORAGE.SETTINGS] && Object.keys(st[STORAGE.SETTINGS]).length ? st[STORAGE.SETTINGS] : run.settings),
       };
-      run.materials = st[STORAGE.MATERIALS] && st[STORAGE.MATERIALS].length ? st[STORAGE.MATERIALS] : run.materials || [];
+      /* Materi: ambil versi ringan dari storage, lalu merge blob media dari
+         state in-memory (urutan sama dalam satu sesi) agar posting media
+         tetap jalan setelah service worker tidur. Karena materi kini tanpa
+         blob (hemat kuota), blob hanya hidup selama sesi berjalan. */
+      const storedMaterials = st[STORAGE.MATERIALS] && st[STORAGE.MATERIALS].length ? st[STORAGE.MATERIALS] : null;
+      if (storedMaterials) {
+        run.materials = storedMaterials.map((m, i) => {
+          const mem = (run.materials || [])[i];
+          const same = mem && (mem.caption || "") === (m.caption || "") && (mem.mediaName || "") === (m.mediaName || "");
+          return {
+            ...m,
+            mediaDataUrl: m.mediaDataUrl || (same && mem.mediaDataUrl) || null,
+            mediaMime: m.mediaMime || (same && mem.mediaMime) || null,
+            available: m.available != null ? m.available : (same ? !!mem.available : false)
+          };
+        });
+      }
       run.groups = st[STORAGE.GROUPS_SNAPSHOT] && st[STORAGE.GROUPS_SNAPSHOT].length ? st[STORAGE.GROUPS_SNAPSHOT] : run.groups || [];
       run.results = st[STORAGE.GROUP_RESULTS] || run.results || {};
+      run.matrix = st[STORAGE.POST_MATRIX] || run.matrix || {};
 
       if (run.cursor >= run.queue.length) {
         await stopPosting("Antrean selesai. Semua materi telah diposting ke semua grup.");
@@ -267,26 +307,40 @@
         statsNow[today] = (statsNow[today] || 0) + 1;
         await storageSet({ [STORAGE.STATS]: statsNow });
         /* Grup utama: posting pasti terkirim bila res.ok. */
-        await markGroup(group.url, true, mi);
+        await markGroup(group.url, true, mi, gi);
         /* Grup tambahan: ✅ bila masuk res.added, ❌ bila masuk res.failed
            (dengan alasan), agar tabel dashboard update per baris. */
         const addedSet = new Set(res.added || []);
         const failedMap = {};
         for (const f of res.failed || []) failedMap[f] = f;
         for (const ex of extras) {
-          if (addedSet.has(ex.url) || addedSet.has(ex.name)) await markGroup(ex.url, true, mi);
-          else if (failedMap[ex.url] || failedMap[ex.name]) await markGroup(ex.url, false, mi, "Grup tidak ditemukan di picker Tambahkan grup");
-          else await markGroup(ex.url, false, mi, (res && res.error) || "Tidak terkonfirmasi di picker");
+          const exGi = giOf(ex.url);
+          if (addedSet.has(ex.url) || addedSet.has(ex.name)) await markGroup(ex.url, true, mi, exGi);
+          else if (failedMap[ex.url] || failedMap[ex.name]) await markGroup(ex.url, false, mi, exGi, "Grup tidak ditemukan di picker Tambahkan grup");
+          else await markGroup(ex.url, false, mi, exGi, (res && res.error) || "Tidak terkonfirmasi di picker");
         }
+        /* Log NAMA grup yang benar-benar tercentang di picker (bukan hanya
+           jumlah): addedNames[{url,name,how}] dari content script, fallback
+           nama tersimpan. how = exact (case-sensitive) / fuzzy. */
+        const nameByUrl = new Map((res.addedNames || []).map((n) => [n.url, n]));
+        const checkedList = extras.filter((ex) => addedSet.has(ex.url) || addedSet.has(ex.name))
+          .map((ex) => {
+            const n = nameByUrl.get(ex.url);
+            return `"${(n && n.name) || ex.name}"${n && n.how === "fuzzy" ? " (fuzzy)" : ""}`;
+          });
+        const failedList = extras.filter((ex) => !(addedSet.has(ex.url) || addedSet.has(ex.name)))
+          .map((ex) => `"${ex.name}"`);
         await log(
-          `Sukses materi #${mi + 1} di ${run.groupName} (+${(res.added || []).length}/${extras.length} tambahan${(res.failed || []).length ? `, ${(res.failed || []).length} ❌ di tabel` : ""}; picker: ${res.rowsSeen == null ? "-" : res.rowsSeen < 0 ? "mode search" : res.rowsSeen + " baris terbaca"} baris terbaca)${autoPost ? "" : " — mode manual, hasil klik Posting user tidak diperiksa"}`,
+          `Sukses materi #${mi + 1} di ${run.groupName} — tambahan tercentang (${checkedList.length}/${extras.length}): ${checkedList.join(", ") || "-"}` +
+          (failedList.length ? ` — GAGAL centang (${failedList.length}): ${failedList.join(", ")}` : "") +
+          `${autoPost ? "" : " — mode manual, hasil klik Posting user tidak diperiksa"}`,
           "ok",
         );
       } else {
         const msg = (res && res.error) || "tidak ada respons";
         /* Batch gagal total: tandai grup utama + semua tambahan ❌. */
-        await markGroup(group.url, false, mi, msg);
-        for (const ex of extras) await markGroup(ex.url, false, mi, msg);
+        await markGroup(group.url, false, mi, gi, msg);
+        for (const ex of extras) await markGroup(ex.url, false, mi, giOf(ex.url), msg);
         await log(`GAGAL materi #${mi + 1} di ${run.groupName}: ${msg} — lanjut batch berikutnya.`, "err");
       }
 
@@ -324,8 +378,8 @@
         const errMsg = (err && err.message) || String(err);
         if (group && group.url) {
           /* Batch gagal total: grup utama + semua tambahan ditandai ❌. */
-          await markGroup(group.url, false, mi, errMsg);
-          for (const url of extras) await markGroup(url, false, mi, errMsg);
+          await markGroup(group.url, false, mi, gi, errMsg);
+          for (const url of extras) await markGroup(url, false, mi, giOf(url), errMsg);
           await log(`GAGAL materi #${mi + 1} di ${group.name}: ${errMsg} — lanjut batch berikutnya.`, "err");
         } else {
           await log(`Error proses posting: ${errMsg}`, "err");

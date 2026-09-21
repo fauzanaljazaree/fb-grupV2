@@ -61,7 +61,16 @@
     fillSettingsForm(State.settings);
     State.groups = data[STORAGE.GROUPS] || [];
     State.selected = new Set(data[STORAGE.SELECTED_GROUPS] || []);
-    State.allMaterials = data[STORAGE.MATERIALS] || [];
+    State.allMaterials = (data[STORAGE.MATERIALS] || []).map((m) => ({
+      account: (m && m.account) || "",
+      caption: (m && m.caption) || "",
+      mediaName: (m && m.mediaName) || ""
+    }));
+    /* Kalau materi tersimpan dari sesi lama masih menyimpan blob media
+       (warisan versi sebelum fitur hemat-kuota), rapikan jadi versi ringan. */
+    if ((data[STORAGE.MATERIALS] || []).some((m) => m && (m.mediaDataUrl || m.mediaMime || m.available !== undefined))) {
+      dashboard.materials.saveMaterials();
+    }
     renderGroups();
     /* Materi tersimpan = hasil filter sesi terakhir. Re-filter dengan nama
        akun yang sekarang agar tabel langsung sesuai akun browser ini. */

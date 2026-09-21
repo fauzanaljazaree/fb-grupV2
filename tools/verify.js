@@ -663,8 +663,8 @@ function checkAutoPostWiring() {
   const manualWait = posting.indexOf("await sleep(MANUAL_POST_WINDOW_MS);", manualBranch);
   const submitClick = posting.indexOf("await findPostButton(20000)");
   report(
-    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick && /if \(!autoPost\)[\s\S]*?return \{ ok: true, added, failed, rowsSeen \};/.test(posting),
-    "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return {ok,added,failed,rowsSeen} SEBELUM klik tombol Posting",
+    manualBranch !== -1 && manualWait !== -1 && submitClick !== -1 && manualWait < submitClick && /if \(!autoPost\)[\s\S]*?return \{ ok: true, added, failed, addedNames, rowsSeen \};/.test(posting),
+    "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return {ok,added,failed,addedNames,rowsSeen} SEBELUM klik tombol Posting",
     "ok",
   );
 
@@ -726,13 +726,13 @@ function checkExtraGroupsWiring() {
   const sched = read("src/background/scheduler.js").replace(/\r/g, "");
   report(/1 \+ LIMITS\.EXTRA_GROUPS_PER_POST/.test(sched) && /extras: run\.groups\.slice\(/.test(sched), "startPosting: antrean dibangun per batch {mi, gi, extras} (1+9)", "ok");
   report(/extraGroups: extras,/.test(sched), "EXECUTE_POST mengirim extraGroups ke content script", "ok");
-  report(/markGroup\(ex\.url, true, mi\)[\s\S]*?markGroup\(ex\.url, false, mi,/.test(sched), "Hasil per grup tambahan ditandai ✅/❌ satu per satu (markGroup per URL)", "ok");
-  report(/markGroup\(group\.url, true, mi\)/.test(sched), "Grup utama ikut ditandai di tabel dashboard", "ok");
+  report(/markGroup\(ex\.url, true, mi, exGi\)[\s\S]*?markGroup\(ex\.url, false, mi, exGi,/.test(sched), "Hasil per grup tambahan ditandai ✅/❌ satu per satu (markGroup per URL + gi matriks)", "ok");
+  report(/markGroup\(group\.url, true, mi, gi\)/.test(sched), "Grup utama ikut ditandai di tabel dashboard", "ok");
   report(/GAGAL materi #\$\{mi \+ 1\}[\s\S]*?lanjut batch berikutnya/.test(sched), "Gagal batch tidak menghentikan antrean (lanjut batch berikutnya)", "ok");
 
   const content = read("src/content/content.js").replace(/\r/g, "");
-  report(/msg\.extraGroups \|\| \[\]/.test(content) && /added: \(r && r\.added\)/.test(content) && /failed: \(r && r\.failed\)/.test(content) && /rowsSeen: \(r && r\.rowsSeen\)/.test(content), "Router content: meneruskan extraGroups & mengembalikan added/failed/rowsSeen ke scheduler", "ok");
-  report(/rowsSeen/.test(posting) && /baris terbaca/.test(sched), "Diagnostik picker (jumlah baris terbaca) mengalir sampai Live Log dashboard", "ok");
+  report(/msg\.extraGroups \|\| \[\]/.test(content) && /added: \(r && r\.added\)/.test(content) && /failed: \(r && r\.failed\)/.test(content) && /addedNames: \(r && r\.addedNames\)/.test(content) && /rowsSeen: \(r && r\.rowsSeen\)/.test(content), "Router content: meneruskan extraGroups & mengembalikan added/failed/addedNames/rowsSeen ke scheduler", "ok");
+  report(/addedNames/.test(posting) && /addedNames/.test(sched) && /tambahan tercentang \(/.test(sched) && /GAGAL centang \(/.test(sched) && !/fallback'\)/.test(posting) && !/\(fallback\)`/.test(posting), "Diagnostik picker: NAMA grup tercentang (addedNames: exact/fuzzy) mengalir sampai Live Log dashboard + fallback baris sembarang sudah dihapus", "ok");
 }
 
 /* ---------- 10b. PORTAL-SAFE PICKER (adopsi tambahGrupFB) ----------

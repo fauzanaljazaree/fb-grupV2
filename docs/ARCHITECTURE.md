@@ -30,13 +30,14 @@ ke satu namespace: **`globalThis.FBAP`**.
 
 ```
 Background : shared/config → shared/random → shared/time → shared/storage
-             → state → power → messaging → tabs → scan → scheduler   (via importScripts)
+             → shared/materialkey → state → power → messaging → tabs
+             → scan → scheduler   (via importScripts)
 
 Content    : shared/config → shared/random → shared/time → shared/spintax
              → selectors → dom → stealth → media → navigation → scraper
              → posting → content                (urutan sama di manifest.json)
 
-Dashboard  : shared/config → shared/time → shared/storage
+Dashboard  : shared/config → shared/time → shared/storage → shared/materialkey
              → state → ui → materials → settings → groups → controls → main
 ```
 
@@ -54,7 +55,7 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `PING`                         | background → content   | –                                                                    | Cek content script terpasang (`{ok:true,pong:true}`)                                                                                                                                                                                                                                                                                   |
 | `NAV_HOME_TO_GROUP`            | background → content   | –                                                                    | Navigasi natural, balas `{groupUrl, groupName}`                                                                                                                                                                                                                                                                                        |
 | `NAV_HOME_TO_COMPOSER`         | background → content   | –                                                                    | Navigasi natural + buka composer, balas `{groupUrl, groupName, url}`                                                                                                                                                                                                                                                                   |
-| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 9 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed}` (added/failed = url grup tambahan) |
+| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 9 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed, addedNames}` (added/failed = url grup tambahan; addedNames = [{url, name, how}] nama baris picker yang tercentang, how = exact|fuzzy) |
 | `EXECUTE_SCRAPE`               | background → content   | –                                                                    | Scraper daftar grup mode lama (scroll window)                                                                                                                                                                                                                                                                                          |
 | `START_SCAN`                   | dashboard → background | –                                                                    | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js`                                                                                  |
 | `SCAN_GROUPS`                  | background → content   | –                                                                    | `scanGroups()`: loop scroll sidebar (maks 80 pass) + kumpulkan `a[href*="/groups/"]`, balas `{ok, sourceUrl, scannedAt, groups}`                                                                                                                                                                                                       |
@@ -76,7 +77,9 @@ tidak ada tipe pesan lama yang hilang.
 | Kunci                       | Isi                                                                                                                                          | Ditulis oleh                                              |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
 | `settings`                  | `{minDelay,maxDelay,dailyLimit,cooldownEvery,cooldownMinutes,autoPost}`                                                                      | dashboard (settings, controls), background (startPosting) |
-| `materials`                 | daftar materi `{caption,mediaName,available,mediaDataUrl,mediaMime}`                                                                         | dashboard, background                                     |
+| `materials`                 | daftar materi RINGAN `{account,caption,mediaName}` — tanpa blob media (kuota aman); media dimuat ulang dari folder tiap sesi                | dashboard (materials, main), background (scheduler)       |
+| `postMatrix`                | `{materialKey: {groupUrl: {ok, mi, gi, at, error}}}` — status ✅/❌ per materi×grup, persisten lintas sesi; dihapus hanya via tombol "Hapus Riwayat Status" | background (markGroup), dashboard (applyResult, btnClearMatrix) |
+| `groupResults`              | `{groupUrl: {ok, mi, at, error}}` — badge sesi berjalan; di-reset tiap `startPosting`                                                        | background (markGroup, startPosting), dashboard           |
 | `queue` / `cursor`          | indeks materi & posisi berjalan                                                                                                              | background (scheduler)                                    |
 | `stats`                     | `{"YYYY-MM-DD": jumlah}` untuk batas harian                                                                                                  | background (scheduler)                                    |
 | `status`                    | `{running}` — dipulihkan/dibersihkan oleh `scheduler.getStatus()`, karena kunci ini bisa tertinggal bila sesi berakhir tanpa `stopPosting()` | background (messaging.setRunning, scheduler.getStatus)    |
@@ -236,6 +239,20 @@ lalu document) → `typeCaption()`.
 - **Antrean dipersist sebelum alarm pertama** (`queue`, `cursor`, `materials`,
   `settings`) karena service worker MV3 dapat dimatikan dan dihidupkan ulang oleh
   alarm.
+- **Status lintas sesi = matriks `postMatrix`, bukan `groupResults`.**
+  `groupResults` adalah badge sesi berjalan (di-reset tiap `startPosting`);
+  status yang harus bertahan walau ekstensi/browser ditutup disimpan di
+  `postMatrix` dengan kunci `materialKey` (fingerprint `account|caption|mediaName`
+  dari `shared/materialkey.js`). Caption sama → kunci sama → ✅/❌ lama tetap
+  tercocokkan walau user import ulang Excel yang sama dengan urutan berbeda.
+  Posting ulang materi yang sama BOLEH menimpa sel lama; matriks hanya
+  dikosongkan lewat tombol **Hapus Riwayat Status** dashboard.
+- **Blob media TIDAK dipersist.** `materials` di storage hanya menyimpan
+  `account/caption/mediaName` (ringan) agar tidak meledakkan kuota
+  `chrome.storage.local` (~5MB). `mediaDataUrl/mediaMime/available` hanya
+  in-memory: dashboard memuat ulang folder media tiap sesi, dan
+  `processNextPost` me-merge blob dari `run.materials` in-memory (urutan sama
+  dalam satu sesi) agar media tetap terkirim setelah service worker tidur.
 - **Fallback in-memory di `processNextPost`.** Bila storage kosong (alarm menyala
   sebelum persist), state in-memory dipakai agar antrean tidak "selesai" palsu.
 - **Status sesi = memori + alarm, bukan kunci storage.** `run.running` hilang
@@ -296,9 +313,21 @@ lalu document) → `typeCaption()`.
   keydown/input/keyup, verifikasi search.value penuh, coba 2x), tunggu
   hasil menyempit (PICKER_SEARCH_TIMEOUT_MS), cocokkan baris (matchScore),
   klik fleksibel (clickRowFlexible), verifikasi aria-checked, kosongkan
-  search (clearPickerSearch). FALLBACK bila kolom search tidak ditemukan:
-  pickGroupsByRows() enumerasi baris + scroll lazy-render + fallback fill
-  baris mana pun (usedRows), ditandai '(fallback)' di matched untuk
+  search (clearPickerSearch). PENCOCOKAN NAMA DUA TAHAP (temuan lapangan
+  #7): nama di Manajemen Data Grup disimpan APA ADANYA (case asli FB,
+  hanya trim+rapikan spasi), jadi tahap 1 = EXACT case-sensitive
+  (normExactText: trim+spasi tunggal TANPA lowercase; nama storage ===
+  nama baris picker), tahap 2 = FUZZY matchScore (persis-lowercase >
+  contains dua arah > semua kata kunci) hanya untuk target yang belum
+  ketemu. FALLBACK LAMA DIHAPUS: dulu baris kosong mana pun dicentang
+  agar jumlah tercentang = target — itu menyebabkan grup SALAH
+  tercentang (baris teratas picker) padahal nama tidak cocok; kini yang
+  tidak ketemu di kedua tahap = failed -> ❌ di tabel dashboard, batch
+  tetap lanjut. Background menerima addedNames dan menuliskan NAMA grup
+  yang benar-benar tercentang di Live Log (bukan hanya jumlah; entri
+  fuzzy ditandai akhiran "(fuzzy)"). FALLBACK bila kolom search tidak
+  ditemukan: pickGroupsByRows() enumerasi baris + scroll lazy-render
+  (dua pass exact→fuzzy, tanpa isi baris sembarang),
    PORTAL-SAFE (temuan lapangan #6, adopsi tambahGrupFB): FB me-render
    daftar grup picker via React PORTAL di luar subtree dialog — query ketat
    di dalam dialog menghasilkan 0 item. Saat listPickerRows() tidak
