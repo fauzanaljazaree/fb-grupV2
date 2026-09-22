@@ -18,7 +18,11 @@
       dailyLimit: 20,
       cooldownEvery: 5,
       cooldownMinutes: 15,
-      autoPost: true
+      autoPost: true,
+      /* Posting Batch: true = 1 submit -> s.d. 10 grup via picker
+         "Tambahkan grup" (perilaku 1+9); false = 1 grup 1 submit,
+         picker tidak pernah dibuka. Default: true (kompatibel lama). */
+      batchPost: true
     }
   };
 

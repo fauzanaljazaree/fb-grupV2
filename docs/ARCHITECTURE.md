@@ -76,7 +76,7 @@ tidak ada tipe pesan lama yang hilang.
 
 | Kunci                       | Isi                                                                                                                                          | Ditulis oleh                                              |
 | --------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------- |
-| `settings`                  | `{minDelay,maxDelay,dailyLimit,cooldownEvery,cooldownMinutes,autoPost}`                                                                      | dashboard (settings, controls), background (startPosting) |
+| `settings`                  | `{minDelay,maxDelay,dailyLimit,cooldownEvery,cooldownMinutes,autoPost,batchPost}`                                                            | dashboard (settings, controls), background (startPosting) |
 | `materials`                 | daftar materi RINGAN `{account,caption,mediaName}` — tanpa blob media (kuota aman); media dimuat ulang dari folder tiap sesi                | dashboard (materials, main), background (scheduler)       |
 | `postMatrix`                | `{materialKey: {groupUrl: {ok, mi, gi, at, error}}}` — status ✅/❌ per materi×grup, persisten lintas sesi; dihapus hanya via tombol "Hapus Riwayat Status" | background (markGroup), dashboard (applyResult, btnClearMatrix) |
 | `groupResults`              | `{groupUrl: {ok, mi, at, error}}` — badge sesi berjalan; di-reset tiap `startPosting`                                                        | background (markGroup, startPosting), dashboard           |
@@ -227,7 +227,8 @@ lalu document) → `typeCaption()`.
     hilang; bila tidak, klik diulang sekali lalu throw agar scheduler mencatat
     GAGAL, antrean tidak maju palsu).
   - `autoPost === false`: workflow SAMA dengan cabang `true` (media dulu +
-    caption + tambah grup), hanya klik akhir yang manual: scheduler memaksa
+    caption + tambah grup — tambah grup hanya saat "Posting Batch" aktif),
+    hanya klik akhir yang manual: scheduler memaksa
     tab FB fokus, content script scroll ke tombol Posting TANPA klik, modal
     composer dibiarkan terbuka selama `LIMITS.MANUAL_POST_WINDOW_MS`
     (10 detik), lalu `return true` **tanpa konfirmasi** klik user — bila
@@ -337,11 +338,18 @@ lalu document) → `typeCaption()`.
   anchor dilakukan document-wide karena lazy-render bisa menempatkan anchor
   di luar sub-tree sidebar yang lama.
 
-- **Batch 1+9 grup per submit (picker "Tambahkan grup").** Antrean dibangun
-  per batch `{mi, gi, extras}` — grup pertama batch = grup utama yang
-  dinavigasi natural, sisanya (maks `LIMITS.EXTRA_GROUPS_PER_POST = 9`)
-  dicentang via picker "Tambahkan grup" composer (fitur bawaan FB: "Posting
-  hingga ke 9 grup yang ada Anda di dalamnya"). Search-FIRST di picker (temuan lapangan: enumerasi baris gagal karena
+- **Batch 1+9 grup per submit (picker "Tambahkan grup") — OPSIONAL via
+  checkbox "Posting Batch" (`settings.batchPost`, default AKTIF).**
+  Antrean dibangun per batch `{mi, gi, extras}`:
+  - batchPost aktif: grup pertama batch = grup utama yang dinavigasi
+    natural, sisanya (maks `LIMITS.EXTRA_GROUPS_PER_POST = 9`) dicentang
+    via picker "Tambahkan grup" composer (fitur bawaan FB).
+  - batchPost NONAKTIF: setiap grup jadi batch sendiri dengan `extras: []`
+    — posting 1 grup 1 submit, picker TIDAK PERNAH dibuka. Motivasi:
+    satu kegagalan picker sebelumnya menghanguskan s.d. 10 grup sekaligus;
+    mode satuan membatasi blast radius ke 1 grup per kegagalan (eksekusi
+    lebih lama, jeda antar-grup tetap `minDelay..maxDelay`).
+  Search-FIRST di picker (temuan lapangan: enumerasi baris gagal karena
   checkbox picker tidak selalu punya role='checkbox', dan set-value
   sekaligus tidak memicu filter React). DETEKSI PICKER (temuan lapangan
   #2): judul "Tambahkan grup" di header picker adalah TEKS biasa, bukan
@@ -403,12 +411,14 @@ lalu document) → `typeCaption()`.
 
 ## 9. Verifikasi Otomatis
 
-`node tools/verify.js` menjalankan 56 pemeriksaan: sintaks, kode mati,
+`node tools/verify.js` menjalankan pemeriksaan: sintaks, kode mati,
 id DOM dashboard ↔ HTML, sinkronisasi manifest, urutan `<script>`, konstanta
-pesan, wiring checkbox **autoposting** (HTML → `controls.js` → `payload.settings`
-→ scheduler → `EXECUTE_POST.autoPost` → `postToGroup()`: cabang manual menunggu
+pesan, wiring checkbox **autoposting** dan **Posting Batch** (HTML →
+`controls.js` → `payload.settings`
+→ scheduler → `EXECUTE_POST.autoPost`/`extraGroups` → `postToGroup()`: cabang manual menunggu
 `LIMITS.MANUAL_POST_WINDOW_MS` sebelum `findPostButton`, jadi mode manual tidak
-mungkin men-submit), paritas nama fungsi & literal tipe pesan terhadap snapshot
+mungkin men-submit; `batchPost` nonaktif membuat antrean satuan `extras: []`
+sehingga picker "Tambahkan grup" tidak pernah dibuka), paritas nama fungsi & literal tipe pesan terhadap snapshot
 `backups/pre-refactor/`, smoke test pemuatan modul (vm + stub `chrome` dan
 `document`) untuk ketiga konteks, pemulihan status basi (`GET_STATUS`
 mereset sesi yang sudah mati sehingga tombol **Mulai Posting** tetap bisa diklik),

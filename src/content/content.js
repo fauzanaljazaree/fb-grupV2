@@ -53,7 +53,9 @@
         } else if (msg.type === MSG.EXECUTE_POST) {
           /* msg.autoPost = checkbox "autoposting" dashboard. false ->
              postToGroup hanya menyiapkan media+caption lalu menunggu
-             jendela manual (MANUAL_POST_WINDOW_MS) tanpa klik Posting. */
+             jendela manual (MANUAL_POST_WINDOW_MS) tanpa klik Posting.
+             msg.extraGroups = mode batch (checkbox "Posting Batch");
+             kosong di mode satuan (1 grup 1 submit, tanpa picker). */
           const r = await postToGroup(msg.caption, msg.mediaDataUrl, msg.mediaMime, msg.mediaName, msg.autoPost !== false, msg.extraGroups || []);
           sendResponse({
             ok: !!(r && r.ok),

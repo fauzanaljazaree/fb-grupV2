@@ -104,7 +104,8 @@
     try { await setStrict({ [STORAGE.GROUP_RESULTS]: {} }); } catch (e) { /* abaikan */ }
     try { dashboard.groups.resetResults(); } catch (e) { /* abaikan */ }
 
-    addLog(`Menjalankan posting ${State.materials.length} materi x ${targetGroups.length} grup = ${State.materials.length * targetGroups.length} posting.`, "info");
+    const batchPost = $("chkBatchPost").checked;
+    addLog(`Menjalankan posting ${State.materials.length} materi x ${targetGroups.length} grup = ${State.materials.length * targetGroups.length} posting (${batchPost ? "batch: 1 submit s.d. 10 grup" : "satuan: 1 grup 1 submit"}).`, "info");
 
     const res = await sendMsg({
       type: MSG.START_POSTING,
@@ -116,7 +117,7 @@
           mediaMime: m.mediaMime || "application/octet-stream"
         })),
         groups: targetGroups.map((g) => ({ name: g.name, url: g.url })),
-        settings: { ...State.settings, showFbTab: $("chkShowFb").checked, autoPost: $("chkAutoPost").checked }
+        settings: { ...State.settings, showFbTab: $("chkShowFb").checked, autoPost: $("chkAutoPost").checked, batchPost }
       }
     });
     if (res && res.ok) {
@@ -171,6 +172,24 @@
     addLog(auto
       ? "Autoposting AKTIF: tombol Posting diklik otomatis setiap langkah."
       : "Autoposting NONAKTIF: media+caption disiapkan, lalu 10 detik untuk klik Posting sendiri — setelah itu antrean lanjut.", "info");
+  });
+
+  /* ------- Checkbox "Posting Batch" -------
+     checked   -> workflow 1+9: 1 submit menjangkau s.d. 10 grup
+                  (grup utama dinavigasi natural + s.d. 9 tambahan
+                  dicentang via picker "Tambahkan grup").
+     unchecked -> 1 grup 1 submit: setiap grup dinavigasi natural dan
+                  diposting SATU-SATU; picker "Tambahkan grup" tidak
+                  pernah dibuka (aman bila picker sering gagal).
+     Nilai disimpan ke STORAGE.SETTINGS supaya ikut terkirim sebagai
+     payload.settings saat "Mulai Posting" ditekan. */
+  $("chkBatchPost").addEventListener("change", async (e) => {
+    const batch = e.target.checked;
+    State.settings.batchPost = batch;
+    await setStrict({ [STORAGE.SETTINGS]: { ...State.settings, batchPost: batch } }).catch(() => {});
+    addLog(batch
+      ? "Posting Batch AKTIF: 1 submit menjangkau s.d. 10 grup via picker \"Tambahkan grup\"."
+      : "Posting Batch NONAKTIF: posting 1 grup 1 submit — picker \"Tambahkan grup\" tidak dipakai.", "info");
   });
 
   /* ---------------- EVENT REALTIME DARI BACKGROUND ---------------- */

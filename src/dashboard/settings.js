@@ -21,8 +21,10 @@
     $("inpCooldownEvery").value = s.cooldownEvery;
     $("inpCooldownMinutes").value = s.cooldownMinutes;
     $("cdEveryText").textContent = s.cooldownEvery;
-    /* Mode autoposting tersimpan bersama pengaturan lain (default: aktif). */
+    /* Mode autoposting & posting batch tersimpan bersama pengaturan lain
+       (default: keduanya aktif). */
     $("chkAutoPost").checked = s.autoPost !== false;
+    $("chkBatchPost").checked = s.batchPost !== false;
   }
 
   $("btnSaveSettings").addEventListener("click", async () => {
@@ -38,12 +40,14 @@
     State.settings = {
       minDelay: min, maxDelay: max, dailyLimit: daily || 1,
       cooldownEvery: every || 1, cooldownMinutes: minutes || 1,
-      /* Jangan hilangkan pilihan mode autoposting saat pengaturan disimpan. */
-      autoPost: State.settings.autoPost !== false
+      /* Jangan hilangkan pilihan mode autoposting/posting batch saat
+         pengaturan disimpan. */
+      autoPost: State.settings.autoPost !== false,
+      batchPost: State.settings.batchPost !== false
     };
     await setStrict({ [STORAGE.SETTINGS]: State.settings });
     fillSettingsForm(State.settings);
-    addLog(`Pengaturan disimpan: jeda ${min}-${max}s, limit ${State.settings.dailyLimit}/hari, cooldown tiap ${every} posting ${minutes}m, autoposting ${State.settings.autoPost ? "AKTIF" : "NONAKTIF"}.`, "ok");
+    addLog(`Pengaturan disimpan: jeda ${min}-${max}s, limit ${State.settings.dailyLimit}/hari, cooldown tiap ${every} posting ${minutes}m, autoposting ${State.settings.autoPost ? "AKTIF" : "NONAKTIF"}, posting batch ${State.settings.batchPost !== false ? "AKTIF" : "NONAKTIF"}.`, "ok");
   });
 
   /* Tombol Reset: isi form dengan nilai default. Nilai baru tersimpan

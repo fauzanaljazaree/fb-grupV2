@@ -745,7 +745,9 @@
     // 1-3. Media DULU (GATE) -> editor ulang -> caption Lexical anti-dobel
     await composeMediaAndCaption(caption, mediaDataUrl, mediaMime, mediaName);
 
-    // 3b. TAMBAHAN GRUP (selalu otomatis): picker "Tambahkan grup"
+    // 3b. TAMBAHAN GRUP (mode batch saja, checkbox "Posting Batch"): picker
+    //     "Tambahkan grup". Mode satuan mengirim extraGroups kosong -> blok
+    //     ini dilewati, composer tidak pernah membuka picker.
     let added = [];
     let failed = [];
     let addedNames = [];

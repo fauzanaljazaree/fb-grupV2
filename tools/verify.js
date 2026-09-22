@@ -645,6 +645,19 @@ function checkAutoPostWiring() {
   report(/chkAutoPost"\)\.checked = s\.autoPost !== false/.test(settingsSrc) && /autoPost: State\.settings\.autoPost !== false/.test(settingsSrc), "Checkbox dipulihkan dari storage & autoPost tidak hilang saat Simpan Pengaturan", "ok");
 
   const sched = read("src/background/scheduler.js").replace(/\r/g, "");
+
+  /* Wiring checkbox "Posting Batch" (mode batch 1+9 vs satuan 1 grup/submit):
+     HTML -> controls.js (handler change + payload.settings.batchPost)
+          -> scheduler (run.batchPost memotong antrean & mengosongkan extras)
+          -> content (extraGroups kosong -> addExtraGroups tidak dipanggil). */
+  const htmlBatch = /id="chkBatchPost"/.test(html);
+  const ctrlBatch = /chkBatchPost"\)\.addEventListener\("change"/.test(controlsSrc) && (/batchPost: \$\("chkBatchPost"\)\.checked/.test(controlsSrc) || /const batchPost = \$\("chkBatchPost"\)\.checked;[\s\S]*?batchPost \}/.test(controlsSrc));
+  const settingsBatch = /chkBatchPost"\)\.checked = s\.batchPost !== false/.test(settingsSrc) && /batchPost: State\.settings\.batchPost !== false/.test(settingsSrc);
+  const configBatch = /batchPost: true/.test(configSrc);
+  const schedBatch = /run\.batchPost = settings\.batchPost !== false/.test(sched) && /const extras = run\.batchPost && item && Array\.isArray\(item\.extras\)/.test(sched);
+  const postingNoPicker = /extraGroups && extraGroups\.length/.test(read("src/content/posting.js"));
+  report(htmlBatch && ctrlBatch && settingsBatch && configBatch && schedBatch && postingNoPicker, 'Wiring checkbox "Posting Batch": HTML → controls → settings → config → scheduler (extras kosong) → posting (picker dilewati)', htmlBatch && ctrlBatch && settingsBatch && configBatch && schedBatch && postingNoPicker ? "ok" : "wiring tidak lengkap");
+
   report(/const autoPost = run\.settings\.autoPost !== false;[\s\S]*?type: MSG\.EXECUTE_POST,\s*autoPost,/.test(sched), "Scheduler membaca settings.autoPost dan mengirimkannya di EXECUTE_POST", "ok");
   report(/"manual \(jendela "[\s\S]*?MANUAL_POST_WINDOW_MS/.test(sched), "Log scheduler membedakan mode autoposting vs manual (jendela 10s)", "ok");
 
@@ -738,7 +751,7 @@ function checkExtraGroupsWiring() {
   report(/pickOneGroupBySearch[\s\S]*?typePickerSearch[\s\S]*?PICKER_SEARCH_TIMEOUT_MS/.test(posting) && /execCommand\("insertText", false, ch\)/.test(posting), "Search-first: ketik nama per karakter di kolom Cari grup + verifikasi value", "ok");
 
   const sched = read("src/background/scheduler.js").replace(/\r/g, "");
-  report(/1 \+ LIMITS\.EXTRA_GROUPS_PER_POST/.test(sched) && /extras: run\.groups\.slice\(/.test(sched), "startPosting: antrean dibangun per batch {mi, gi, extras} (1+9)", "ok");
+  report(/1 \+ LIMITS\.EXTRA_GROUPS_PER_POST/.test(sched) && /run\.batchPost \? 1 \+ LIMITS\.EXTRA_GROUPS_PER_POST : 1/.test(sched) && /run\.groups\.slice\(/.test(sched) && /: \[\]/.test(sched), 'startPosting: antrean per batch {mi, gi, extras} — batch 1+9 saat "Posting Batch" aktif, extras [] saat nonaktif', "ok");
   report(/extraGroups: extras,/.test(sched), "EXECUTE_POST mengirim extraGroups ke content script", "ok");
   report(/markGroup\(ex\.url, true, mi, exGi\)[\s\S]*?markGroup\(ex\.url, false, mi, exGi,/.test(sched), "Hasil per grup tambahan ditandai ✅/❌ satu per satu (markGroup per URL + gi matriks)", "ok");
   report(/markGroup\(group\.url, true, mi, gi\)/.test(sched), "Grup utama ikut ditandai di tabel dashboard", "ok");

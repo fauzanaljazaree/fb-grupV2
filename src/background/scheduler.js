@@ -6,10 +6,13 @@
 
    Alur BARU (materi-luar x grup-dalam): startPosting -> scheduleNext ->
          onAlarm -> processNextPost -> scheduleNext (berulang).
-   Tiap item antrean = {mi, gi} (1 materi ke 1 grup target dari tabel
-   dashboard yang dicentang). Navigasi natural dilakukan SETIAP langkah
-   (cari grup target di sidebar -> klik), jeda acak setiap pindah grup.
-   Gagal di 1 grup -> lanjut grup berikutnya + tandai ✅/❌ di tabel.
+   Tiap item antrean = {mi, gi, extras}. Checkbox "Posting Batch" dashboard:
+     AKTIF   -> extras berisi s.d. 9 grup tambahan (1 submit -> 10 grup
+                via picker "Tambahkan grup" di composer).
+     NONAKTIF-> extras selalu kosong: 1 grup 1 submit, picker tidak dibuka.
+   Navigasi natural dilakukan SETIAP langkah (cari grup target di sidebar
+   -> klik), jeda acak setiap pindah grup.
+   Gagal di 1 batch -> lanjut batch berikutnya + tandai ✅/❌ di tabel.
    Ketika antrean habis / limit harian tercapai -> stopPosting.
    ========================================================= */
 
@@ -45,19 +48,24 @@
     /* Default "Tampilkan tab FB saat posting" = AKTIF (checkbox dashboard
        tercentang secara default); hanya dimatikan bila eksplisit false. */
     run.showFbTab = settings.showFbTab !== false;
-    /* BATCH 1+9: 1 submit menjangkau s.d. 10 grup. Grup pertama batch =
-       grup utama (dinavigasi natural via sidebar), sisanya (s.d. 9) =
-       grup tambahan yang dicentang via picker "Tambahkan grup" di
-       composer (fitur bawaan FB, "Posting hingga ke 9 grup"). Loop
-       luar = materi, loop dalam = batch grup. */
+    /* BATCH 1+9 (checkbox "Posting Batch" dashboard): saat batchPost aktif,
+       1 submit menjangkau s.d. 10 grup — grup pertama batch = grup utama
+       (dinavigasi natural via sidebar), sisanya (s.d. 9) = grup tambahan
+       yang dicentang via picker "Tambahkan grup" di composer (fitur
+       bawaan FB). Saat NONAKTIF, tiap grup = batch satuan tanpa extras:
+       posting 1 grup 1 submit, picker tidak pernah dibuka (aman bila
+       picker sering gagal). Loop luar = materi, loop dalam = batch grup. */
+    run.batchPost = settings.batchPost !== false;
     run.queue = [];
-    const step = 1 + LIMITS.EXTRA_GROUPS_PER_POST;
+    const step = run.batchPost ? 1 + LIMITS.EXTRA_GROUPS_PER_POST : 1;
     for (let mi = 0; mi < materialList.length; mi++) {
       for (let gi = 0; gi < run.groups.length; gi += step) {
         run.queue.push({
           mi,
           gi,
-          extras: run.groups.slice(gi + 1, gi + step).map((g) => ({ name: g.name, url: g.url })),
+          extras: run.batchPost
+            ? run.groups.slice(gi + 1, gi + step).map((g) => ({ name: g.name, url: g.url }))
+            : [],
         });
       }
     }
@@ -87,7 +95,7 @@
     keepAwakeOn();
     await setRunning(true);
     await log(
-      `Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} batch (1 grup utama + s.d. ${LIMITS.EXTRA_GROUPS_PER_POST} tambahan via "Tambahkan grup" per submit). Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`,
+      `Antrean dibangun: ${materialList.length} materi x ${run.groups.length} grup = ${run.queue.length} ${run.batchPost ? `batch (1 grup utama + s.d. ${LIMITS.EXTRA_GROUPS_PER_POST} tambahan via "Tambahkan grup" per submit)` : `posting satuan (1 grup 1 submit, tanpa picker "Tambahkan grup")`}. Tab FB: ${run.showFbTab ? "tampil di depan (fokus)" : "background (tetap di dashboard)"}.`,
       "info",
     );
     await broadcastQueueInfo();
@@ -252,10 +260,15 @@
       if (!material) throw new Error("Materi tidak ditemukan di antrean.");
       if (!group || !group.url) throw new Error("Grup target tidak ditemukan di antrean.");
       /* Grup tambahan batch ini (s.d. 9): dikirim ke content script untuk
-         dicentang via picker "Tambahkan grup". Urut sesuai tabel. */
-      const extras = (item && Array.isArray(item.extras) ? item.extras : [])
-        .map((g) => ({ name: g.name || g.url, url: g.url }))
-        .filter((g) => g.url);
+         dicentang via picker "Tambahkan grup". Urut sesuai tabel.
+         Mode satuan (checkbox "Posting Batch" nonaktif): extras selalu
+         kosong -> picker tidak pernah dibuka, posting benar-benar
+         1 grup 1 submit. */
+      const extras = run.batchPost && item && Array.isArray(item.extras)
+        ? item.extras
+            .map((g) => ({ name: g.name || g.url, url: g.url }))
+            .filter((g) => g.url)
+        : [];
       await log(`Navigasi natural ke grup: ${group.name || group.url}...`, "info");
       const navTab = await ensurePostTab(FB_HOME);
       await waitTabLoaded(navTab.id, 45000);
@@ -276,7 +289,7 @@
                     sendiri; setelah itu alur lanjut tanpa memedulikan. */
       const autoPost = run.settings.autoPost !== false;
       await log(
-        `Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length}) — mode: ${autoPost ? "autoposting (klik Posting otomatis)" : "manual (jendela " + LIMITS.MANUAL_POST_WINDOW_MS / 1000 + "s untuk klik Posting sendiri)"}`,
+        `Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length}) — mode: ${autoPost ? "autoposting (klik Posting otomatis)" : "manual (jendela " + LIMITS.MANUAL_POST_WINDOW_MS / 1000 + "s untuk klik Posting sendiri)"}${run.batchPost ? ` + ${extras.length} grup tambahan via picker` : " (tanpa grup tambahan)"}`,
         "info",
       );
 
