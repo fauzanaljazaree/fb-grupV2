@@ -280,6 +280,15 @@
         "info",
       );
 
+      /* MODE MANUAL WAJIB TAB TERLIHAT: user butuh melihat & mengklik
+         tombol Posting sendiri selama jendela 10 detik. Abaikan
+         run.showFbTab untuk langkah ini — tab FB selalu diaktifkan +
+         difokuskan (mode autoposting tetap menghormati showFbTab). */
+      if (!autoPost && !run.showFbTab) {
+        run.showFbTab = true;
+        await log("Mode manual: tab FB difokuskan agar Anda bisa klik Posting sendiri.", "info");
+      }
+
       const tab = await ensurePostTab(run.groupUrl);
       /* Kontrak: ensurePostTab TIDAK me-reload tab bila sudah di grup target
          (sameGroupUrl) — reload menghancurkan composer modal yang dibuka

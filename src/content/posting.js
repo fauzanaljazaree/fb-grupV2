@@ -87,22 +87,104 @@
      Dipakai oleh postToGroup() untuk kedua mode (autoposting & manual).
      ========================================================= */
 
+  /* Strip karakter tak terlihat Lexical (zero-width space \u200B, BOM
+     \uFEFF, non-breaking space \u00A0) SEBELUM normalisasi \s — tanpa ini
+     editor yang TAMPAK kosong terbaca "berisi" dan guard anti-dobel
+     terpicu palsu (sumber error "Gagal membersihkan editor" di semua
+     batch). */
   const normText = (s) =>
     String(s || "")
+      .replace(/[\u200B\u200C\u200D\uFEFF\u00A0]/g, " ")
       .replace(/\s+/g, " ")
       .trim();
   const getEditorText = (editor) => normText(editor ? editor.textContent : "");
 
-  /** Kosongkan editor Lexical (focus + select all + delete). */
-  async function clearEditor(editor) {
-    editor.focus();
+  /** Placeholder dinamis FB: salam berganti-ganti ("Assalamualaikum 👋
+      Semoga sehat selalu…", "Buat postingan publik...", dst) yang di-render
+      Lexical SEBAGAI textContent di dalam node editor. Ia (1) terbaca
+      seolah editor "berisi draft" sehingga guard anti-dobel terpicu palsu,
+      dan (2) TIDAK bisa dihapus via select-all+delete (FB me-render ulang).
+      Satu-satunya cara membedakan draft asli vs placeholder: bandingkan
+      dengan atribut aria-placeholder node itu sendiri (FB update atribut
+      ini mengikuti salam yang sedang tampil). Editor dianggap KOSONG bila
+      teksnya kosong ATAU identik dengan placeholder-nya. */
+  const getPlaceholder = (editor) =>
+    normText(editor && editor.getAttribute ? editor.getAttribute("aria-placeholder") || "" : "");
+  const editorIsEmpty = (editor) => {
+    const t = getEditorText(editor);
+    return !t || t === getPlaceholder(editor);
+  };
+
+  /** Editor contenteditable composer yang FRESH (bukan node stale hasil
+      re-render Lexical). Dipakai clearEditor antar-percobaan hapus. */
+  const freshEditor = async () => (await findEditor(2000)) || null;
+
+  /** Diagnostik editor untuk pesan error: panjang teks, cuplikan, kode
+      karakter pertama (deteksi zero-width/emoji/node img), jangkar node. */
+  function editorDiagnostics(node) {
+    if (!node) return "(node editor hilang)";
+    const raw = node.textContent || "";
+    const norm = normText(raw);
+    const codes = Array.from(norm.slice(0, 12))
+      .map((c) => c.codePointAt(0).toString(16))
+      .join(" ");
+    const hasImgs = node.querySelectorAll("img").length;
+    return (
+      `teks=${JSON.stringify(norm.slice(0, 120))} (len=${norm.length}, rawLen=${raw.length}, ` +
+      `imgs=${hasImgs}, charCodes=[${codes}], lexical=${node.hasAttribute("data-lexical-editor") ? "ya" : "tidak"})`
+    );
+  }
+
+  /** Satu percobaan penghapusan pada node: select-all + salah satu metode
+      hapus (jalur "delete" -> "insertText timpa" -> "cut" -> hard-reset
+      innerHTML + event input bubbles agar state React ikut update). */
+  function wipeOnce(node, method) {
+    node.focus();
     const range = document.createRange();
-    range.selectNodeContents(editor);
+    range.selectNodeContents(node);
     const sel = window.getSelection();
     sel.removeAllRanges();
     sel.addRange(range);
-    document.execCommand("delete", false, null);
-    await sleep(150);
+    if (method === "delete") {
+      document.execCommand("delete", false, null);
+    } else if (method === "overwrite") {
+      /* Timpa seleksi dengan teks kosong via insertText (jalur berbeda
+         dari delete — bisa lolos veto beforeinput Lexical). */
+      document.execCommand("insertText", false, " ");
+      document.execCommand("delete", false, null);
+    } else if (method === "cut") {
+      document.execCommand("cut", false, null);
+    } else {
+      /* hard: kosongkan DOM langsung + beri tahu React/Lexical via event
+         input bubbles (guideline §10.4: event sintetis harus bubbles). */
+      node.innerHTML = "";
+      node.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
+  /** Kosongkan editor Lexical dengan FALLBACK CHAIN (bukan retry cara
+      sama): tiap metode diverifikasi kosong via polling; gagal -> metode
+      berikutnya. Return string diagnostik bila GAGAL semua, atau null
+      bila sukses — pemanggil menempelkan diagnostiknya ke pesan error. */
+  async function clearEditor(editor) {
+    const methods = ["delete", "overwrite", "cut", "hard"];
+    let node = editor;
+    for (const method of methods) {
+      const fresh = await freshEditor();
+      node = fresh || node;
+      try {
+        wipeOnce(node, method);
+      } catch (e) {
+        /* method gagal mekanis -> coba metode berikutnya */
+        continue;
+      }
+      const emptied = await waitFor(() => (editorIsEmpty(node) ? true : null), {
+        timeoutMs: 1500,
+        label: `editor kosong (metode ${method})`,
+      }).catch(() => null);
+      if (emptied) return null;
+    }
+    return `clearEditor gagal semua metode [${methods.join(", ")}]: ${editorDiagnostics(node)}`;
   }
 
   /** Ketik caption per-baris: insertText, fallback paste, Enter via keydown.
@@ -149,16 +231,35 @@
       - sudah persis -> tidak mengetik ulang (idempoten)
       - sisa draft -> dibersihkan dulu supaya tidak append
       - hasil < 80% panjang target -> gagal
-      - dobel (teks berulang) -> bersihkan & ketik ulang SEKALI, stop bila masih dobel */
+      - dobel (teks berulang) -> bersihkan & ketik ulang SEKALI, stop bila masih dobel
+      PENTING (temuan lapangan): setelah popup "Tambahkan grup" ditutup,
+      Lexical butuh waktu untuk commit re-render — baca langsung sering
+      melihat teks peralihan dan memicu ketik-ulang palsu. Karena itu
+      verifikasi "masih kotor" memakai polling singkat, bukan baca buta. */
   async function typeCaption(editor, caption) {
     editor.focus();
     await sleep(300);
     const expected = normText(caption);
-    const existing = getEditorText(editor);
-    if (existing && existing === expected) return;
-    if (existing) {
-      await clearEditor(editor);
-      if (getEditorText(editor)) throw new Error("Gagal membersihkan editor — stop anti-dobel.");
+    /* Jendela sinkronisasi: tunggu maksimal 2s sampai isi editor stabil
+       (sama dengan target, kosong, ATAU placeholder salam FB) sebelum
+       memutuskan perlu membersihkan. Placeholder dinilai kosong — memicu
+       clear untuk placeholder adalah false-positive (tak bisa dihapus). */
+    const synced = await waitFor(() => {
+      const cur = getEditorText(editor);
+      if (!cur || cur === expected || editorIsEmpty(editor)) return true;
+      return null;
+    }, { timeoutMs: 2000, label: "isi editor stabil" }).catch(() => null);
+    if (!synced) {
+      const diag = await clearEditor(editor);
+      const still = await waitFor(() => (editorIsEmpty(editor) ? true : null), {
+        timeoutMs: 2500,
+        label: "editor bersih pasca-clearEditor",
+      }).catch(() => null);
+      if (!still) {
+        throw new Error(
+          `Gagal membersihkan editor — stop anti-dobel. [${diag || "tanpa diagnostik clear"} | pasca-clear: ${editorDiagnostics(editor)}]`,
+        );
+      }
     }
     await insertCaptionLines(editor, caption);
     const inserted = getEditorText(editor);
@@ -656,19 +757,44 @@
       addedNames = res.addedNames || [];
       rowsSeen = res.rowsSeen || 0;
       /* Picker bisa me-re-render composer Lexical (sama seperti attach
-         media): pastikan caption masih utuh, ketik ulang bila berubah. */
+         media): pastikan caption masih utuh, ketik ulang bila benar-benar
+         berubah. Jangan memutuskan dari satu bacaan langsung — Lexical
+         butuh waktu commit pasca-popup tertutup, jadi tunggu isi editor
+         stabil (sama dengan caption, atau kosong) maksimal 3s dulu. */
       const editor = await findEditor(8000);
       if (!editor) throw new Error("Editor caption hilang setelah menutup popup Tambahkan grup.");
       const expected = normText(parse(caption || ""));
-      if (expected && getEditorText(editor) !== expected) await typeCaption(editor, expected);
+      if (expected) {
+        const stable = await waitFor(() => {
+          const cur = getEditorText(editor);
+          if (!cur || cur === expected) return true;
+          return null;
+        }, { timeoutMs: 3000, label: "caption stabil pasca-picker" }).catch(() => null);
+        /* Masih beda setelah jendela sinkronisasi -> baru ketik ulang
+           (typeCaption akan membersihkan dulu dengan aman). */
+        if (!stable && getEditorText(editor) !== expected) await typeCaption(editor, expected);
+      }
     }
 
     // 4. Jeda baca manusiawi sebelum submit
     await sleep(randInt(800, 1600));
 
-    // 5. MODE MANUAL: jangan klik Posting — beri user jendela waktu.
+    // 5. MODE MANUAL: workflow sama persis dengan autoposting (media ->
+    //    caption -> tambah grup -> re-verify caption), HANYA klik akhir
+    //    yang diserahkan ke user: scroll ke tombol Posting supaya terlihat
+    //    (TANPA klik), lalu biarkan modal composer terbuka selamanya
+    //    MANUAL_POST_WINDOW_MS. Tidak ada konfirmasi klik user — bila
+    //    semua persiapan lancar, langkah ini langsung dianggap BERHASIL
+    //    (ok: true) tanpa memedulikan apakah user mengklik atau tidak.
     if (!autoPost) {
       console.log(`[FB-AutoPoster] Mode manual: media+caption+${added.length} grup tambahan siap di editor. Menunggu ${MANUAL_POST_WINDOW_MS / 1000}s agar user klik Posting sendiri.`);
+      try {
+        const hint = await findPostButton(5000);
+        if (hint) await humanScrollToEl(hint);
+      } catch (e) {
+        /* Tombol belum ter-render / scroll gagal: jangan gagalkan langkah —
+           persiapan sudah sukses dan mode manual tidak mensubmit. */
+      }
       await sleep(MANUAL_POST_WINDOW_MS);
       return { ok: true, added, failed, addedNames, rowsSeen };
     }

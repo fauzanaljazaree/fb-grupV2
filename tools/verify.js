@@ -667,6 +667,20 @@ function checkAutoPostWiring() {
     "Mode manual: tunggu MANUAL_POST_WINDOW_MS lalu return {ok,added,failed,addedNames,rowsSeen} SEBELUM klik tombol Posting",
     "ok",
   );
+  /* Mode manual = workflow identik + tanpa submit & tanpa konfirmasi: scroll
+     ke tombol Posting (tanpa klik) di dalam cabang manual, TIDAK ada
+     findPostButton(20000)/klik di dalamnya, lalu ok:true otomatis. */
+  const manualBody = posting.slice(manualBranch, posting.indexOf("await findPostButton(20000)", manualBranch));
+  report(
+    /findPostButton\(5000\)[\s\S]{0,200}humanScrollToEl\(hint\)/.test(manualBody) && !/\.click\(\)/.test(manualBody),
+    "Mode manual: scroll ke tombol Posting (tanpa klik) di cabang manual — hanya klik user, tanpa konfirmasi",
+    "ok",
+  );
+  report(
+    /if \(!autoPost && !run\.showFbTab\) \{[\s\S]{0,200}run\.showFbTab = true;/.test(sched),
+    "Scheduler memaksa tab FB tampil & terfokus saat mode manual (abaikan showFbTab)",
+    "ok",
+  );
 
   /* ---------- Check jalur produksi (Mulai Posting) = workflow media-dulu ----------
      postToGroup() wajib memakai inti bersama composeMediaAndCaption (urutan

@@ -116,11 +116,15 @@ page reload yang menghancurkan composer modal yang baru dibuka `NAV_HOME_TO_COMP
 Karena itu `ensurePostTab` memakai `sameGroupUrl()` (bandingkan URL kanonis
 `/groups/{id}`) dan bila sama hanya melepas pin + fokus tanpa navigasi. Bila ragu
 (URL tidak kanonis), pilih aman: tetap navigasi (perilaku lama).
-Bila `settings.autoPost` **tidak aktif**, langkah `EXECUTE_POST`
-berhenti setelah media+caption terisi dan menunggu `MANUAL_POST_WINDOW_MS`
-(10 detik) untuk klik Posting oleh user; setelah jendela itu antrean lanjut
-tanpa memeriksa hasil klik (tetap dihitung 1 posting), jadi mode manual
-membutuhkan tab FB terlihat agar user bisa mengklik.
+Bila `settings.autoPost` **tidak aktif**, langkah `EXECUTE_POST` menjalankan
+workflow yang SAMA PERSIS dengan autoposting (media dulu + caption + tambah
+grup), hanya klik Posting akhir yang diserahkan ke user: scheduler MEMAKSA
+tab FB tampil & terfokus untuk langkah itu (mengabaikan `ui.showFbTab`),
+content script scroll ke tombol Posting (tanpa klik), lalu modal composer
+dibiarkan terbuka selama `MANUAL_POST_WINDOW_MS` (10 detik). Tidak ada
+konfirmasi klik user — bila semua persiapan lancar, langkah langsung
+dianggap BERHASIL (`ok:true`, dihitung 1 posting) tanpa memeriksa apakah
+user mengklik atau tidak.
 
 ## 6. Tanggung Jawab Modul
 
@@ -222,17 +226,36 @@ lalu document) → `typeCaption()`.
     tombol Posting + **verifikasi pasca-submit** (composer & preview media harus
     hilang; bila tidak, klik diulang sekali lalu throw agar scheduler mencatat
     GAGAL, antrean tidak maju palsu).
-  - `autoPost === false`: STOP setelah media+caption terisi, tunggu
-    `LIMITS.MANUAL_POST_WINDOW_MS` (10 detik) memberi user kesempatan klik
-    Posting sendiri, lalu `return true` **tanpa memedulikan** apakah user
-    mengklik atau tidak — hasilnya tetap dihitung 1 posting sukses oleh
-    scheduler (cursor maju, statistik harian +1) agar loop tidak macet.
+  - `autoPost === false`: workflow SAMA dengan cabang `true` (media dulu +
+    caption + tambah grup), hanya klik akhir yang manual: scheduler memaksa
+    tab FB fokus, content script scroll ke tombol Posting TANPA klik, modal
+    composer dibiarkan terbuka selama `LIMITS.MANUAL_POST_WINDOW_MS`
+    (10 detik), lalu `return true` **tanpa konfirmasi** klik user — bila
+    semua persiapan lancar hasilnya langsung dianggap BERHASIL (1 posting
+    sukses oleh scheduler: cursor maju, statistik harian +1, loop tidak
+    macet). Scroll ke tombol gagal TIDAK menggagalkan langkah.
     Selektor hanya `role`/`aria-label`/`aria-placeholder` (tanpa class `x…` FB);
     dialog composer asli dicari dari ISI (editor di dalamnya), bukan dari
     `aria-label` — dialog berlabel "Buat postingan" hanya kotak judul kosong.
     Ketik per-baris memakai `execCommand("insertText")` + fallback paste,
     verifikasi pertumbuhan teks ASYNC, dan anti-dobel (bersihkan & ketik ulang
-    sekali bila teks terduplikasi). `uploadMedia()` punya fallback jalur lama
+    sekali bila teks terduplikasi). Keputusan (temuan lapangan): `normText`
+    HARUS strip karakter tak terlihat Lexical (`\u200B \u200C \u200D \uFEFF
+    \u00A0`) — tanpa itu editor yang tampak kosong terbaca "berisi" dan guard
+    anti-dobel terpicu palsu; editor dianggap KOSONG bila textContent-nya
+    kosong ATAU identik dengan atribut `aria-placeholder` node itu — FB
+    me-render salam dinamis ("Assalamualaikum 👋Semoga sehat selalu…") sebagai
+    textContent di dalam node Lexical; ia tak terhapus via select-all+delete
+    (FB me-render ulang), jadi menghapusnya = false-positive; `clearEditor()`
+    memakai FALLBACK CHAIN metode
+    hapus (delete -> insertText timpa -> cut -> hard-reset innerHTML +
+    event input bubbles), tiap metode diverifikasi kosong via polling +
+    re-query node fresh (commit Lexical ASINKRON; retry metode yang sama
+    terbukti tidak mempan — isi editor yang benar-benar menolak terhapus
+    harus dicoba lewat jalur berbeda); keputusan "perlu ketik ulang"
+    (baik di typeCaption maupun re-verify pasca-picker) hanya boleh diambil
+    SETELAH jendela sinkronisasi (polling s.d. 2–3s) memastikan isi editor
+    memang stabil berbeda dari target. `uploadMedia()` punya fallback jalur lama
     `attachMedia()` bila konversi `fetch(dataURL)` gagal. Timeout `EXECUTE_POST`
     150s (upload + GATE 20s + caption + submit/manual-window untuk materi besar).
     Dijaga check `checkAutoPostWiring()` di `tools/verify.js` (urutan
