@@ -315,10 +315,16 @@
     // 2. Dialog composer ASLI (dicari dari ISI, bukan aria-label)
     const dialog = findComposerDialog() || editor0.closest('div[role="dialog"]') || null;
 
-    // 3. MEDIA DULU + GATE preview blob (skip bila materi tanpa media)
+    // 3. MEDIA DULU + GATE preview blob (skip HANYA bila materi memang
+    //    tanpa media). Log eksplisit saat mediaName ada tapi blob kosong —
+    //    situasi itu seharusnya tak pernah terjadi lagi karena background
+    //    mem-persist blob ke IndexedDB + gate di scheduler, tapi bila
+    //    terjadi JANGAN diam-diam: log peringatan keras di console FB.
     if (mediaDataUrl) {
       const ok = await uploadMedia(dialog, mediaDataUrl, mediaMime, mediaName);
       if (!ok) throw new Error("Gagal melampirkan media (GATE preview tidak lolos).");
+    } else if (mediaName) {
+      console.warn(`[FB-AutoPoster] Media "${mediaName}" TIDAK terkirim (data URL kosong) — posting akan berisi teks saja. Laporkan bila berulang.`);
     }
 
     // 4. Query editor SETELAH media — node fresh; scope preview media DULU.

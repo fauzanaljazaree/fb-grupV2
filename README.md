@@ -23,6 +23,7 @@ fbGrup-AutoPosting/
 │  ├─ background/           # service worker (modular via importScripts)
 │  │  ├─ service-worker.js  #   entry: listener chrome.* + message router
 │  │  ├─ state.js           #   state aktif (run) + restoreState
+│  │  ├─ media-store.js     #   IndexedDB sesi: blob media tahan restart SW
 │  │  ├─ power.js           #   chrome.power keep-awake
 │  │  ├─ messaging.js       #   log, setRunning, broadcastQueueInfo
 │  │  ├─ tabs.js            #   tab FB/dashboard, injeksi content script
@@ -99,7 +100,7 @@ fbGrup-AutoPosting/
 node tools/verify.js
 ```
 
-Memeriksa (103 check): sintaks semua file JS, kode mati, konsistensi id DOM
+Memeriksa (123 check): sintaks semua file JS, kode mati, konsistensi id DOM
 dashboard, sinkronisasi `manifest.json` ↔ `FBAP.config.CONTENT_SCRIPT_FILES`,
 urutan `<script>` dashboard, konstanta pesan, wiring checkbox **autoposting**
 (mode auto vs manual 10 detik) & checkbox **Posting Batch** (batch 1+9 grup
@@ -122,6 +123,10 @@ navigasi `home → grup → composer` di atas DOM Facebook tiruan.
   otomatis oleh `tools/verify.js`.
 - Semua kunci `chrome.storage.local` diakses via `FBAP.config.STORAGE.*`, semua tipe
   pesan via `FBAP.config.MSG.*` (tidak ada string ajaib yang tersebar).
+- Blob media tidak pernah masuk `chrome.storage.local` (kuota ~5MB): materi
+  dipersist versi ringan, blob media disimpan ke IndexedDB sesi oleh
+  `src/background/media-store.js` dan di-hydrate ulang setiap langkah posting
+  (`node tools/media-store.test.js` mengujinya dengan stub IndexedDB).
 
 ## Catatan Refactor (v1.0.0 struktur)
 

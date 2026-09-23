@@ -20,6 +20,7 @@ importScripts(
   "../shared/time.js",
   "../shared/storage.js",
   "../shared/materialkey.js",
+  "media-store.js",
   "state.js",
   "power.js",
   "messaging.js",

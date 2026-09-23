@@ -305,9 +305,11 @@ function loadScripts(sandbox, files, baseDir) {
 function checkLoadBackground() {
   const ctx = loadScripts(makeSandbox(makeChromeStub({})), ["src/background/service-worker.js"], "src/background");
   const bg = ctx.FBAP && ctx.FBAP.background;
-  const need = ["state", "power", "messaging", "tabs", "scan", "scheduler"];
+  const need = ["mediaStore", "state", "power", "messaging", "tabs", "scan", "scheduler"];
   const missing = need.filter((k) => !bg || !bg[k]);
   report(missing.length === 0, "Modul background terdaftar (importScripts)", missing.join(", "));
+  const mediaApi = ["putMedia", "getMedia", "clearMedia", "putAllMedia", "hydrateMaterials"].filter((fn) => !bg || !bg.mediaStore || typeof bg.mediaStore[fn] !== "function");
+  report(mediaApi.length === 0, "API background.mediaStore lengkap (putMedia, getMedia, clearMedia, putAllMedia, hydrateMaterials)", mediaApi.join(", "));
   const api = ["startPosting", "stopPosting", "processNextPost", "sendToContent", "ensurePostTab", "getStatus"];
   const missingApi = api.filter((fn) => !bg || (!bg.scheduler[fn] && !bg.tabs[fn]));
   report(missingApi.length === 0, "API background lengkap", missingApi.join(", "));
@@ -827,6 +829,25 @@ function checkSellGroupSkip() {
   report(/id="btnClearSell"/.test(html), "dashboard.html: tombol 'Hapus label jual-beli' ada", "ok");
 }
 
+/* ---------- 10c. PERSISTENSI MEDIA (bug "media hilang di grup ke-4+") ----------
+   Kontrak media: blob di IndexedDB sesi (media-store.js), hydrate per langkah,
+   gate start (dashboard + scheduler), media hilang = stop total. */
+function checkMediaPersistence() {
+  const sched = read("src/background/scheduler.js").replace(/\r/g, "");
+  const store = read("src/background/media-store.js").replace(/\r/g, "");
+  const controls = read("src/dashboard/controls.js").replace(/\r/g, "");
+  const sw = read("src/background/service-worker.js").replace(/\r/g, "");
+  const posting = read("src/content/posting.js").replace(/\r/g, "");
+
+  report(/const \{ putAllMedia, hydrateMaterials \} = background\.mediaStore;/.test(sched), "scheduler.js: destructuring background.mediaStore (putAllMedia, hydrateMaterials)", "ok");
+  report(/await putAllMedia\(/.test(sched) && /await hydrateMaterials\(run\.materials\)/.test(sched), "scheduler.js: blob disimpan ke IndexedDB saat startPosting + di-hydrate ulang setiap processNextPost", "ok");
+  report(/if \(stopSession\) \{[\s\S]*?await stopPosting\(/.test(sched), "scheduler.js: media hilang di tengah sesi -> stopPosting total (bukan lanjut tanpa media)", "ok");
+  report(/mediaName && !needMedia0\.mediaDataUrl/.test(sched) && /mediaName && \(!m\.available \|\| !m\.mediaDataUrl\)/.test(controls), "gate start dua sisi: scheduler + dashboard menolak sesi bila media wajib tidak terbaca", "ok");
+  report(/"media-store\.js",/.test(sw), "service-worker.js: media-store.js dimuat via importScripts sebelum state.js", "ok");
+  report(/indexedDB/.test(store) && /hydrateMaterials/.test(store) && /putAllMedia/.test(store), "media-store.js: implementasi IndexedDB (putAllMedia/hydrateMaterials)", "ok");
+  report(/console\.warn\(`\[FB-AutoPoster\] Media/.test(posting), "posting.js: skip media tidak pernah diam-diam (console.warn saat data URL kosong)", "ok");
+}
+
 /* ---------- 11. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
@@ -848,6 +869,7 @@ function checkSellGroupSkip() {
   checkLoadDashboard();
   await checkStatusRecovery();
   await checkHomeToComposerChain();
+  checkMediaPersistence();
 
   const failed = results.filter((r) => !r.ok);
   console.log(`\n== Ringkasan: ${results.length - failed.length}/${results.length} check lulus ==`);

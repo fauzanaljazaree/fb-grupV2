@@ -32,6 +32,7 @@
   const { keepAwakeOn, keepAwakeOff } = background.power;
   const { log, setRunning, broadcastQueueInfo } = background.messaging;
   const { ensurePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusTab, focusDashboard } = background.tabs;
+  const { putAllMedia, hydrateMaterials } = background.mediaStore;
 
   const ALARM_NAME = "post-tick";
 
@@ -46,6 +47,38 @@
 
     run.materials = materialList;
     run.groups = groupList.map((g) => ({ name: g.name || g.url, url: g.url }));
+    /* GATE MEDIA START (jangan posting teks diam-diam): materi yang memakai
+       media TAPI blob-nya tidak terbawa (folder media belum dimuat / user
+       menekan Mulai meski ada badge "✗ Tidak Ada") -> tolak mulai + pesan
+       jelas. Materi "Tanpa Media" (memang tanpa kolom Media_Name) tetap
+       boleh berjalan sebagai posting teks. */
+    const missingBlobs = materialList.filter((m) => m.mediaName && !m.mediaDataUrl);
+    if (missingBlobs.length) {
+      const names = [...new Set(missingBlobs.map((m) => m.mediaName))].slice(0, 5).join(", ");
+      return {
+        ok: false,
+        error: `Media tidak tersedia untuk ${missingBlobs.length} materi (${names}${missingBlobs.length > 5 ? ", ..." : ""}). Muat ulang folder media di dashboard lalu mulai lagi — sesi tidak boleh jalan bila ada media yang akan hilang (posting bisa jadi teks saja).`,
+      };
+    }
+    /* PERSIST BLOB MEDIA KE INDEXEDDB: chrome.storage.local tidak muat blob
+       (kuota ~5MB) dan memori service worker MV3 hilang saat worker tidur
+       (inilah akar bug "media hilang di grup ke-4+"). IndexedDB bertahan
+       lintas restart worker/browser; processNextPost mengisi ulang blob dari
+       sini setiap langkah via hydrateMaterials. Kunci store dibersihkan tiap
+       sesi baru (satu sesi = satu isi store). Bila IndexedDB gagal (mode
+       privasi dsb.) sesi TIDAK dimulai — lebih aman daripada media hilang
+       di tengah jalan. */
+    let storedBlobs = 0;
+    try {
+      storedBlobs = await putAllMedia(
+        materialList.filter((m) => m.mediaName && m.mediaDataUrl).map((m) => ({ name: m.mediaName, dataUrl: m.mediaDataUrl, mime: m.mediaMime })),
+      );
+      if (storedBlobs) {
+        await log(`${storedBlobs} file media disimpan ke penyimpanan sesi (IndexedDB, tahan restart service worker/browser).`, "ok");
+      }
+    } catch (e) {
+      return { ok: false, error: `Gagal menyimpan media ke IndexedDB (${e.message}). Sesi tidak dimulai — coba muat ulang folder media, atau jalankan tanpa mode penyamaran.` };
+    }
     /* Grup berlabel jual-beli (pernah terdeteksi hanya punya tombol
        "Jual sesuatu", STORAGE.SELL_GROUPS) DILEWATI sejak awal: tidak
        masuk antrean, tidak dinavigasi sia-sia. Label menang atas centang
@@ -249,6 +282,11 @@
       run.running = true;
       keepAwakeOn();
     }
+    /* stopSession (media hilang -> stop total) dan failedBatch (batch gagal
+       -> lanjut antrean) dideklarasikan DI LUAR try/catch/finally supaya
+       keputusan penjadwalan setelah finally tetap melihatnya. */
+    let stopSession = false;
+    let failedBatch = false;
     run.busy = true;
     try {
       const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX]);
@@ -261,9 +299,11 @@
         ...(st[STORAGE.SETTINGS] && Object.keys(st[STORAGE.SETTINGS]).length ? st[STORAGE.SETTINGS] : run.settings),
       };
       /* Materi: ambil versi ringan dari storage, lalu merge blob media dari
-         state in-memory (urutan sama dalam satu sesi) agar posting media
-         tetap jalan setelah service worker tidur. Karena materi kini tanpa
-         blob (hemat kuota), blob hanya hidup selama sesi berjalan. */
+         state in-memory (urutan sama dalam satu sesi). Sisanya diisi ulang
+         dari IndexedDB via hydrateMaterials — inilah perbaikan bug "media
+         hilang di grup ke-4+": memori service worker hilang saat worker
+         tidur di jeda antar posting, tapi blob di IndexedDB tetap ada dan
+         tiap langkah kembali terpasang. */
       const storedMaterials = st[STORAGE.MATERIALS] && st[STORAGE.MATERIALS].length ? st[STORAGE.MATERIALS] : null;
       if (storedMaterials) {
         run.materials = storedMaterials.map((m, i) => {
@@ -276,7 +316,26 @@
             available: m.available != null ? m.available : (same ? !!mem.available : false)
           };
         });
+        await hydrateMaterials(run.materials).catch(async (e) => {
+          /* IndexedDB gagal dibaca (mode privasi, kuota, dsb.): JANGAN
+             gagalkan batch — blob di memori masih mungkin hidup (worker
+             belum restart). Bila dua-duanya kosong, gate media per-langkah
+             di bawah yang akan menghentikan sesi total. */
+          await log(`Peringatan: gagal membaca penyimpanan media (IndexedDB): ${e.message} — memakai blob di memori bila masih ada.`, "warn");
+        });
       }
+      /* GATE MEDIA PER-LANGKAH (jangan posting teks diam-diam): antrean butuh
+         media tapi blob tidak ketemu di memori MAUPUN IndexedDB -> jangan
+         navigasi. stopSession disetel; stop total dijalankan di bawah setelah
+         finally (run.busy wajib turun lebih dulu agar stopPosting bersih). */
+      const item0 = run.queue[run.cursor];
+      const mi0 = item0 && item0.mi != null ? item0.mi : run.cursor;
+      const needMedia0 = run.materials[mi0] || null;
+      if (needMedia0 && needMedia0.mediaName && !needMedia0.mediaDataUrl) {
+        await log(`MEDIA HILANG untuk materi #${mi0 + 1} (${needMedia0.mediaName}): tidak ditemukan di memori maupun IndexedDB — sesi dihentikan sebelum posting jadi teks saja. Muat ulang folder media di dashboard lalu mulai ulang.`, "err");
+        stopSession = true;
+      }
+      if (stopSession) return;
       run.groups = st[STORAGE.GROUPS_SNAPSHOT] && st[STORAGE.GROUPS_SNAPSHOT].length ? st[STORAGE.GROUPS_SNAPSHOT] : run.groups || [];
       run.results = st[STORAGE.GROUP_RESULTS] || run.results || {};
       run.matrix = st[STORAGE.POST_MATRIX] || run.matrix || {};
@@ -486,9 +545,28 @@
       } catch (e) {
         /* abaikan */
       }
-      if (run.running) scheduleNext(randInt(run.settings.minDelay, run.settings.maxDelay) * 1000);
+      /* Batch gagal tapi antrean masih ada: jadwalkan batch berikutnya
+         SETELAH finally (lihat blok failedBatch di bawah). */
+      failedBatch = true;
     } finally {
       run.busy = false;
+    }
+    /* MEDIA HILANG = STOP TOTAL (keputusan desain: jangan pernah posting
+       teks diam-diam). Dijalankan SETELAH finally karena stopPosting
+       menolak saat run.busy masih true. Bila blob media wajib tidak ketemu
+       di memori maupun IndexedDB (store rusak / dibersihkan eksternal /
+       browser dibuka sangat lama), SELURUH SESI dihentikan — bukan lanjut
+       tanpa media. */
+    if (stopSession) {
+      await log("Sesi DIHENTIKAN: media materi tidak tersedia (memori & IndexedDB). Muat ulang folder media di dashboard lalu mulai ulang — sisa antrean tidak diposting agar tidak jadi teks saja.", "err");
+      await stopPosting("Sesi dihentikan: media materi tidak tersedia.");
+      return;
+    }
+    /* Lanjut antrean setelah batch gagal (di luar try/catch/finally agar
+       penjadwalan berikutnya selalu terjadi dengan state bersih; jalur
+       sukses di dalam try menjadwalkan dirinya sendiri via scheduleNext). */
+    if (failedBatch && run.running) {
+      scheduleNext(randInt(run.settings.minDelay, run.settings.maxDelay) * 1000);
     }
   }
 

@@ -30,8 +30,8 @@ ke satu namespace: **`globalThis.FBAP`**.
 
 ```
 Background : shared/config → shared/random → shared/time → shared/storage
-             → shared/materialkey → state → power → messaging → tabs
-             → scan → scheduler   (via importScripts)
+             → shared/materialkey → media-store → state → power → messaging
+             → tabs → scan → scheduler   (via importScripts)
 
 Content    : shared/config → shared/random → shared/time → shared/spintax
              → selectors → dom → stealth → media → navigation → scraper
@@ -144,6 +144,7 @@ user mengklik atau tidak.
 | `shared/storage.js`       | Promise wrapper storage                                                                                | menyimpan state aplikasi   |
 | `shared/spintax.js`       | parser `{a                                                                                             | b}`                        | —   |
 | `background/state.js`     | objek `run` + `restoreState()`                                                                         | logika posting             |
+| `background/media-store.js` | IndexedDB sesi: persist blob media lintas restart service worker (`putAllMedia`, `hydrateMaterials`) | dipakai di luar background |
 | `background/power.js`     | keep-awake                                                                                             | —                          |
 | `background/messaging.js` | `log`, `setRunning`, `broadcastQueueInfo`                                                              | navigasi tab               |
 | `background/tabs.js`      | tab FB/dashboard, injeksi content script, `sendToContent`                                              | mengubah antrean           |
@@ -178,6 +179,24 @@ user mengklik atau tidak.
 
 ## 8. Keputusan Desain Penting
 
+- **Blob media wajib persisten di IndexedDB sesi (`background/media-store.js`)
+  dan media yang hilang = STOP TOTAL, bukan posting teks diam-diam.**
+  Temuan lapangan (bug "media hilang di grup ke-4+"): `chrome.storage.local`
+  hanya menyimpan materi VERSI RINGAN tanpa blob (kuota ~5MB), blob hanya hidup
+  di memori service worker MV3 — dan worker pasti dimatikan Chrome selama jeda
+  antar posting (180–300s). Hasilnya batch ke-4 dan seterusnya terkirim
+  `mediaDataUrl: null` lalu di-posting TEKS SAJA tanpa error. Perbaikan tiga
+  lapis: (1) `startPosting()` menyimpan semua blob ke IndexedDB
+  (`putAllMedia`, satu store dibersihkan per sesi; IndexedDB tersedia di
+  service worker MV3, bertahan lintas restart worker DAN browser);
+  (2) `processNextPost()` mengisi ulang blob dari IndexedDB setiap langkah
+  (`hydrateMaterials`) SEBELUM `EXECUTE_POST` dikirim;
+  (3) gate dua sisi — materi yang memakai media tapi blob tidak terbaca
+  MENOLAK sesi dimulai (dashboard `btnStart` + `startPosting()`), dan bila
+  blob hilang di tengah sesi (store rusak/dibersihkan eksternal) SELURUH SESI
+  dihentikan (`stopSession`) — keputusan user: jangan pernah posting teks
+  diam-diam. Materi yang memang "Tanpa Media" (tanpa kolom `Media_Name`)
+  tetap sah diposting sebagai teks.
 - **Grup tanpa kolom posting ("Jual sesuatu") di-SKIP, diberi LABEL permanen,
   dan di-uncheck otomatis.** Temuan lapangan: sebagian grup tidak menyediakan
   trigger "Tulis sesuatu..." / "Write something..." — tombol **"Jual sesuatu" /

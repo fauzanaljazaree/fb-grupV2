@@ -96,8 +96,16 @@
      (urutan tabel atas->bawah), baru lanjut materi berikutnya. */
   $("btnStart").addEventListener("click", async () => {
     if (!State.materials.length) { addLog("Tidak ada materi untuk diposting. Import Excel + media dulu.", "err"); return; }
-    if (State.materials.some((m) => m.mediaName && !m.available)) {
-      addLog("Ada materi dengan media tidak tersedia — akan diposting tanpa media.", "warn");
+    /* GUARD MEDIA (jangan posting teks diam-diam): materi yang MEMAKAI media
+       tapi blob tidak terbaca dari folder media (badge "✗ Tidak Ada") ->
+       tolak mulai dengan pesan jelas. Dulu hanya "warn" lalu tetap jalan
+       dengan mediaDataUrl null — posting pun jadi teks saja tanpa error.
+       Materi "Tanpa Media" (tanpa kolom Media_Name) tetap boleh berjalan. */
+    const missingMedia = State.materials.filter((m) => m.mediaName && (!m.available || !m.mediaDataUrl));
+    if (missingMedia.length) {
+      const names = [...new Set(missingMedia.map((m) => m.mediaName))].slice(0, 5).join(", ");
+      addLog(`Tidak bisa mulai: media tidak tersedia untuk ${missingMedia.length} materi (${names}${missingMedia.length > 5 ? ", ..." : ""}). Muat ulang folder media di dashboard sampai badge berubah "✓ Tersedia", lalu mulai lagi.`, "err");
+      return;
     }
     const targetGroups = (State.groups || []).filter((g) => State.selected.has(g.url));
     if (!targetGroups.length) { addLog("Tidak ada grup yang dicentang. Centang dulu grup di tabel.", "err"); return; }
@@ -113,7 +121,11 @@
         materials: State.materials.map((m) => ({
           caption: m.caption || "",
           mediaName: m.mediaName || "",
-          mediaDataUrl: m.available ? m.mediaDataUrl : null,
+          /* Blob DIKIRIM APA ADANYA — background mem-persist ke IndexedDB.
+             Jangan kirim null saat m.available false: guard di atas sudah
+             menolak sesi bila media wajib hilang, jadi null di sini hanya
+             terjadi untuk materi yang memang tanpa media. */
+          mediaDataUrl: m.mediaDataUrl || null,
           mediaMime: m.mediaMime || "application/octet-stream"
         })),
         groups: targetGroups.map((g) => ({ name: g.name, url: g.url })),
