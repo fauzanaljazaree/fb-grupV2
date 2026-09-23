@@ -373,6 +373,22 @@
       await storageSet({ [STORAGE.CURSOR]: run.cursor });
       await broadcastQueueInfo();
 
+      /* ANTREAN HABIS: selesai sekarang, tanpa alarm/jeda tersisa.
+         Sebelumnya di sini selalu scheduleNext() -> setelah posting grup
+         terakhir masih ada satu jeda acak penuh yang sia-sia sebelum
+         alarm fire dan stopPosting dipanggil. */
+      if (run.cursor >= run.queue.length) {
+        await stopPosting("Antrean selesai. Semua materi telah diposting ke semua grup.");
+        return;
+      }
+
+      /* Batas harian tercapai tepat setelah posting ini -> berhenti tanpa jeda. */
+      const statsAfter = (await storageGet([STORAGE.STATS]))[STORAGE.STATS] || {};
+      if ((statsAfter[today] || 0) >= run.settings.dailyLimit) {
+        await stopPosting(`Batas harian tercapai (${statsAfter[today]}/${run.settings.dailyLimit}).`);
+        return;
+      }
+
       /* Cooldown: setelah N posting istirahat M menit */
       run.postsSinceCooldown = (run.postsSinceCooldown || 0) + 1;
       if (run.postsSinceCooldown >= run.settings.cooldownEvery) {
@@ -409,6 +425,11 @@
         run.cursor++;
         await storageSet({ [STORAGE.CURSOR]: run.cursor });
         await broadcastQueueInfo();
+        /* ANTREAN HABIS setelah batch gagal: berhenti sekarang tanpa jeda. */
+        if (run.cursor >= run.queue.length) {
+          await stopPosting("Antrean selesai. Semua materi telah diposting ke semua grup.");
+          return;
+        }
       } catch (e) {
         /* abaikan */
       }

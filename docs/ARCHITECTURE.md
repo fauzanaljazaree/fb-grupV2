@@ -101,6 +101,12 @@ dashboard btnStart --START_POSTING--> background.startPosting()
     |               -> ensurePostTab(groupUrl) -> EXECUTE_POST(autoPost) -> hasil
     |                  [ensurePostTab SKIP reload bila tab sudah di grup target]
     | stats++, cursor++, broadcastQueueInfo()
+    | ANTREAN HABIS / LIMIT HARIAN TERCAPAI -> stopPosting(reason) SEKARANG,
+    |   TANPA alarm "post-tick" tersisa (cek sebelum hitung jeda/cooldown,
+    |   berlaku juga di jalur catch batch gagal)
+    | cooldown bila postsSinceCooldown >= cooldownEvery
+    v
+  scheduleNext(jeda acak / sisa cooldown) -> alarm berikutnya ...
     | cooldown bila postsSinceCooldown >= cooldownEvery
     v
   scheduleNext(jeda acak / sisa cooldown) -> alarm berikutnya ...
