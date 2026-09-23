@@ -2,6 +2,20 @@
    FB Auto Poster - Background: Manajemen Tab
    Satu tab FB "postTab" biasa (unpinned) dipakai ulang untuk semua
    navigasi & posting; tab dashboard dibedakan tersendiri.
+
+   ID postTab dipersist ke chrome.storage.local (STORAGE.POST_TAB_ID)
+   supaya service worker MV3 yang bangun lagi dari tidur tetap memakai
+   ulang tab lama — bukan membuat tab baru tiap batch (bug "tab FB
+   menumpuk satu per satu postingan"). Bila ID basi (tab ditutup user),
+   tab FB facebook.com yang sudah terbuka diadopsi sebelum membuat baru;
+   saat create terpaksa perlu, tab lama milik sesi ditutup.
+
+   MODE MANUAL (checkbox "autoposting" tidak dicentang) memakai pool
+   terpisah: tiap batch tabs.create BARU via ensureManualPostTab, ID masuk
+   STORAGE.POST_TAB_MANUAL_IDS (FIFO maks LIMITS.MAX_MANUAL_TABS = 3);
+   tab manual tertua ditutup otomatis saat pool penuh (tanpa timing
+   khusus, tanpa tab menumpuk). findExistingFbTab mengecualikan pool ini —
+   postTab tidak boleh membajak composer manual yang masih menunggu klik.
    ========================================================= */
 
 (function (root) {
@@ -9,9 +23,96 @@
 
   const FBAP = (root.FBAP = root.FBAP || {});
   const background = (FBAP.background = FBAP.background || {});
-  const { MSG, CONTENT_SCRIPT_FILES } = FBAP.config;
+  const { MSG, STORAGE, LIMITS, CONTENT_SCRIPT_FILES } = FBAP.config;
+  const { get: storageGet, set: storageSet } = FBAP.storage;
   const { DASH_URL, FB_HOME, run } = background.state;
   const { log } = background.messaging;
+
+  /* ---------------- PERSIST ID TAB POSTING ----------------
+     Sumber kebenaran tunggal ID postTab: tulis selalu lewat
+     rememberPostTab (memori + storage), hapus lewat forgetPostTab.
+     Tulis best-effort: kegagalan storage tidak boleh menggagalkan
+     navigasi posting (sesuai kontrak storage.set yang tak pernah reject). */
+  async function rememberPostTab(tabId) {
+    run.postTabId = tabId || null;
+    try {
+      await storageSet({ [STORAGE.POST_TAB_ID]: run.postTabId });
+    } catch (e) {}
+  }
+
+  async function forgetPostTab() {
+    await rememberPostTab(null);
+  }
+
+  /** Pulihkan ID postTab dari storage (dipanggil scheduler saat worker MV3
+      bangun dari tidur dengan memori kosong). Bila ID basi / tidak ada,
+      dibiarkan null — ensurePostTab akan mengadopsi tab FB eksisting atau
+      membuat baru. */
+  async function restorePostTab() {
+    if (run.postTabId) return run.postTabId;
+    try {
+      const saved = (await storageGet([STORAGE.POST_TAB_ID]))[STORAGE.POST_TAB_ID];
+      if (saved) run.postTabId = saved;
+    } catch (e) {}
+    return run.postTabId;
+  }
+
+  /* ---------------- POOL TAB MODE MANUAL ----------------
+     Mode manual (autoposting TIDAK dicentang): tiap batch membuka tab BARU
+     yang dibiarkan terbuka agar user punya waktu klik Posting sendiri.
+     ID-nya dipersist ke STORAGE.POST_TAB_MANUAL_IDS (array FIFO) dengan
+     batas LIMITS.MAX_MANUAL_TABS: saat pool penuh, tab manual TERTUA milik
+     sesi ditutup otomatis SEBELUM tab baru dibuka — tanpa timing khusus,
+     tanpa tab menumpuk, tanpa deteksi klik user (mustahil dilakukan
+     background: EXECUTE_POST manual selalu membalas ok tanpa verifikasi).
+     Tab autoposting (postTab) TIDAK termasuk pool & tidak pernah ditutup
+     oleh mekanisme ini. */
+  async function rememberManualTabs() {
+    try {
+      await storageSet({ [STORAGE.POST_TAB_MANUAL_IDS]: run.manualTabIds.slice() });
+    } catch (e) {}
+  }
+
+  /** Pulihkan pool tab manual dari storage bila memori kosong (worker MV3
+      bangun dari tidur) — dipanggil sebelum pool dipakai/difilter. */
+  async function restoreManualTabs() {
+    if (run.manualTabIds && run.manualTabIds.length) return run.manualTabIds;
+    try {
+      const saved = (await storageGet([STORAGE.POST_TAB_MANUAL_IDS]))[STORAGE.POST_TAB_MANUAL_IDS];
+      if (Array.isArray(saved) && saved.length) run.manualTabIds = saved.slice();
+    } catch (e) {}
+    return run.manualTabIds;
+  }
+
+  /** Batch manual: buka tab BARU di `url` (SELALU create — tidak reuse,
+      tidak adopsi), setelah membuang ID basi dan menutup tab manual
+      TERTUA bila pool penuh (FIFO maks LIMITS.MAX_MANUAL_TABS). Tab baru
+      mengikuti run.showFbTab (scheduler memaksa showFbTab=true sebelum
+      dipanggil, sehingga tab manual baru selalu aktif & terfokus). */
+  async function ensureManualPostTab(url) {
+    const active = !!run.showFbTab;
+    await restoreManualTabs();
+    /* Buang ID basi (tab sudah ditutup user) supaya eviction hanya
+       menyentuh tab yang benar-benar masih hidup. */
+    const alive = [];
+    for (const id of run.manualTabIds || []) {
+      try {
+        await chrome.tabs.get(id);
+        alive.push(id);
+      } catch (e) {}
+    }
+    run.manualTabIds = alive;
+    /* FIFO: pool penuh -> tutup tab manual TERTUA milik sesi lebih dulu. */
+    while (run.manualTabIds.length >= LIMITS.MAX_MANUAL_TABS) {
+      const oldest = run.manualTabIds.shift();
+      try { await chrome.tabs.remove(oldest); } catch (e) {}
+    }
+    const tab = await chrome.tabs.create({ url, active, pinned: false });
+    run.manualTabIds.push(tab.id);
+    await rememberManualTabs();
+    if (active) await focusTab(tab.id);
+    return tab;
+  }
 
   /* ---------------- FOKUS TAB ---------------- */
   async function focusTab(tabId) {
@@ -164,52 +265,115 @@
     return !!ca && !!cb && ca === cb;
   }
 
+  /** Cari tab facebook.com yang sudah terbuka (di window mana pun), kandidat
+      untuk diadopsi jadi postTab bila ID tersimpan basi. Dashboard tab ikut
+      ter-query karena startswith(DASH_URL); difilter di sini. Tab yang masuk
+      pool manual JANGAN diadopsi — composer manual yang menunggu klik user
+      tidak boleh dibajak/di-navigasi-ulang oleh mode autoposting. */
+  async function findExistingFbTab() {
+    try {
+      await restoreManualTabs();
+      const manualIds = new Set(run.manualTabIds || []);
+      const tabs = await chrome.tabs.query({});
+      return (
+        tabs.find(
+          (t) =>
+            t &&
+            t.url &&
+            t.url.includes("facebook.com") &&
+            !t.url.startsWith(DASH_URL) &&
+            !manualIds.has(t.id),
+        ) || null
+      );
+    } catch (e) {
+      return null;
+    }
+  }
+
   /** Pakai ulang tab FB yang ada, atau buat baru (tab biasa, bukan pinned).
       `pinned: false` saat update juga melepas pin pada tab lama yang masih
       pinned dari versi sebelumnya (migrasi otomatis).
       PENTING: bila tab sudah berada di grup target (URL kanonis sama),
       JANGAN navigasi ulang — chrome.tabs.update({url}) me-reload tab dan
       menghancurkan composer modal yang sedang terbuka. Cukup lepas pin,
-      fokus bila perlu, lalu pakai tabnya apa adanya. */
+      fokus bila perlu, lalu pakai tabnya apa adanya.
+      ANTI-TAB-NUMPUK: ID postTab dipersist (STORAGE.POST_TAB_ID) agar tetap
+      dikenal walau service worker MV3 tidur/bangun di antara alarm. Bila ID
+      basi, tab FB yang sudah terbuka diadopsi dulu sebelum membuat tab baru;
+      create terpaksa perlu menutup tab lama milik sesi agar tidak menumpuk. */
   async function ensurePostTab(url) {
     const active = !!run.showFbTab;
-    if (run.postTabId) {
+    let prevTabId = run.postTabId || null;
+    if (prevTabId) {
       try {
-        const cur = await chrome.tabs.get(run.postTabId);
+        const cur = await chrome.tabs.get(prevTabId);
         if (sameGroupUrl(cur && cur.url, url)) {
-          await chrome.tabs.update(run.postTabId, { active, pinned: false });
-          if (active) await focusTab(run.postTabId);
-          return await chrome.tabs.get(run.postTabId);
+          await chrome.tabs.update(prevTabId, { active, pinned: false });
+          if (active) await focusTab(prevTabId);
+          return await chrome.tabs.get(prevTabId);
         }
-        await chrome.tabs.update(run.postTabId, { url, active, pinned: false });
-        if (active) await focusTab(run.postTabId);
+        await chrome.tabs.update(prevTabId, { url, active, pinned: false });
+        if (active) await focusTab(prevTabId);
         /* Ambil snapshot TERBARU setelah update, bukan objek lama. */
-        return await chrome.tabs.get(run.postTabId);
+        return await chrome.tabs.get(prevTabId);
       } catch (e) {
-        run.postTabId = null;
+        /* ID basi (tab ditutup user / worker restart): lepas dari memori,
+           lanjut adopsi/create di bawah. */
+        prevTabId = null;
+        await forgetPostTab();
       }
     }
+    /* Adopsi tab FB yang sudah terbuka — tidak membuat tab baru bila tidak perlu. */
+    const existing = await findExistingFbTab();
+    if (existing && existing.id != null) {
+      try {
+        if (sameGroupUrl(existing.url, url)) {
+          await chrome.tabs.update(existing.id, { active, pinned: false });
+          if (active) await focusTab(existing.id);
+          await rememberPostTab(existing.id);
+          return await chrome.tabs.get(existing.id);
+        }
+        await chrome.tabs.update(existing.id, { url, active, pinned: false });
+        if (active) await focusTab(existing.id);
+        await rememberPostTab(existing.id);
+        return await chrome.tabs.get(existing.id);
+      } catch (e) {
+        /* Adopsi gagal (tab ditutup di tengah jalan): jatuh ke create di bawah. */
+      }
+    }
+    /* Bila adopsi gagal (tab lama tertutup di tengah jalan), tutup tab lama
+       milik sesi sebelum membuat baru — supaya sesi panjang tidak meninggalkan
+       tab FB lama satu per satu batch. */
+    if (existing && existing.id != null) {
+      try { await chrome.tabs.remove(existing.id); } catch (e) {}
+    }
     const tab = await chrome.tabs.create({ url, active, pinned: false });
-    run.postTabId = tab.id;
-    if (active) await focusTab(run.postTabId);
+    await rememberPostTab(tab.id);
+    if (active) await focusTab(tab.id);
     return tab;
   }
 
   /** Tombol "Lihat Tab FB": fokus tab FB bila ada, buat baru bila belum.
-      Tab FB yang ditemukan selalu dilepas pin-nya agar jadi tab biasa. */
+      Tab FB yang ditemukan selalu dilepas pin-nya agar jadi tab biasa.
+      Selaras dengan ensurePostTab: tab FB yang diadopsi tercatat sebagai
+      postTab (memori + storage) agar pemakaian-ulang konsisten. */
   async function showFbTab() {
     try {
+      if (!run.postTabId) await restorePostTab();
+      if (run.postTabId) {
+        const known = await chrome.tabs.get(run.postTabId).catch(() => null);
+        if (!known) await forgetPostTab();
+      }
       if (!run.postTabId) {
-        const tabs = await chrome.tabs.query({});
-        const fb = tabs.find((t) => t.url && t.url.includes("facebook.com"));
-        if (fb) run.postTabId = fb.id;
+        const fb = await findExistingFbTab();
+        if (fb) await rememberPostTab(fb.id);
       }
       if (run.postTabId) {
         await chrome.tabs.update(run.postTabId, { pinned: false }).catch(() => {});
         await focusTab(run.postTabId);
       } else {
         const tab = await chrome.tabs.create({ url: FB_HOME, active: true, pinned: false });
-        run.postTabId = tab.id;
+        await rememberPostTab(tab.id);
       }
       return { ok: true };
     } catch (e) {
@@ -225,6 +389,11 @@
     ensureContentScript,
     sendToContent,
     ensurePostTab,
+    rememberPostTab,
+    restorePostTab,
+    forgetPostTab,
+    ensureManualPostTab,
+    restoreManualTabs,
     sameGroupUrl,
     showFbTab,
   };

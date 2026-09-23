@@ -49,6 +49,15 @@
     GROUP_RESULTS: "groupResults",
     POST_MATRIX: "postMatrix",
     GROUPS_SNAPSHOT: "groupsSnapshot",
+    /* Tab FB "postTab" yang dipakai ulang antar langkah posting. ID tab
+       dipersist agar service worker MV3 yang bangun lagi dari tidur tetap
+       menemukan tab lama (bukan membuat tab baru tiap batch). */
+    POST_TAB_ID: "postTabId",
+    /* Pool tab mode MANUAL (checkbox "autoposting" tidak dicentang): tiap
+       batch membuka tab baru yang dibiarkan terbuka untuk klik user. Array
+       ID tab dipersist agar service worker yang bangun lagi tetap bisa
+       men-evict tab tertua saat pool penuh (FIFO, lihat LIMITS.MAX_MANUAL_TABS). */
+    POST_TAB_MANUAL_IDS: "postTabManualIds",
     SCAN_STATUS: "scanStatus",
     LAST_SCAN: "lastScan",
     ACCOUNT_NAME: "accountName",
@@ -118,7 +127,12 @@
     ADD_GROUPS_TIMEOUT_MS: 15000,
     PICKER_SEARCH_TIMEOUT_MS: 8000,
     PICKER_SCROLL_PASSES: 15,
-    PICKER_STUCK_LIMIT: 3
+    PICKER_STUCK_LIMIT: 3,
+    /* Mode manual (autoposting tidak dicentang): jumlah maksimum tab FB yang
+       dibiarkan terbuka untuk klik user. Batch manual baru menutup tab manual
+       TERTUA milik sesi saat pool penuh (FIFO, tanpa timing khusus). Tab
+       autoposting tidak termasuk pool ini (1 tab reuse terpisah). */
+    MAX_MANUAL_TABS: 3
   };
 
   /* ---------------- DAFTAR FILE CONTENT SCRIPT ----------------

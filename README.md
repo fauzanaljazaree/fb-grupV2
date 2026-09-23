@@ -127,6 +127,15 @@ navigasi `home → grup → composer` di atas DOM Facebook tiruan.
   dipersist versi ringan, blob media disimpan ke IndexedDB sesi oleh
   `src/background/media-store.js` dan di-hydrate ulang setiap langkah posting
   (`node tools/media-store.test.js` mengujinya dengan stub IndexedDB).
+- Satu tab FB dipakai ulang untuk semua posting (anti tab numpuk): ID tab
+  "postTab" dipersist di `STORAGE.POST_TAB_ID` dan dipulihkan saat service
+  worker MV3 bangun dari tidur; `ensurePostTab()` mengadopsi tab facebook.com
+  yang sudah terbuka sebelum membuat tab baru (`node tools/tab-reuse.test.js`
+  mengujinya dengan stub chrome.tabs).
+- Mode manual (autoposting tidak dicentang) membuka tab BARU tiap batch agar
+  Anda leluasa klik Posting, tapi dibatasi pool FIFO maks 3 tab
+  (`STORAGE.POST_TAB_MANUAL_IDS`): batch keempat menutup tab manual tertua
+  lebih dulu — tab tidak pernah menumpuk.
 
 ## Catatan Refactor (v1.0.0 struktur)
 

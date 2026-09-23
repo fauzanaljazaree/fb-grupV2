@@ -28,6 +28,10 @@
     groupUrl: null,   // grup terakhir dipakai (info saja, bukan cache navigasi)
     groupName: null,
     postTabId: null,
+    /* Pool tab mode manual (ID array, FIFO maks LIMITS.MAX_MANUAL_TABS).
+       Dipersist ke STORAGE.POST_TAB_MANUAL_IDS; diubah HANYA via helper
+       rememberManualTabs/restoreManualTabs/ensureManualPostTab di tabs.js. */
+    manualTabIds: [],
     dashboardTabId: null,
     /* Default selaras checkbox dashboard "Tampilkan tab FB saat posting"
        (tercentang). Selama sesi berjalan nilainya selalu ditimpa oleh

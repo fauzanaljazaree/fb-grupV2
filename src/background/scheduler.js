@@ -31,7 +31,7 @@
   const { run, FB_HOME } = background.state;
   const { keepAwakeOn, keepAwakeOff } = background.power;
   const { log, setRunning, broadcastQueueInfo } = background.messaging;
-  const { ensurePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusTab, focusDashboard } = background.tabs;
+  const { ensurePostTab, restorePostTab, waitTabLoaded, ensureContentScript, sendToContent, focusTab, focusDashboard, forgetPostTab, ensureManualPostTab } = background.tabs;
   const { putAllMedia, hydrateMaterials } = background.mediaStore;
 
   const ALARM_NAME = "post-tick";
@@ -129,7 +129,11 @@
        Caption sama -> materialKey sama -> status ✅/❌ lama tetap tercocokkan
        walau ekstensi ditutup dan materi di-import ulang. */
     run.matrix = (await storageGet([STORAGE.POST_MATRIX]))[STORAGE.POST_MATRIX] || {};
-    run.postTabId = null;
+    /* Tab FB tidak dibuang saat mulai: ID postTab terakhir dipulihkan dari
+       storage dan tabnya DIPAKAI ULANG untuk sesi ini (anti tab numpuk).
+       Jika tab sudah ditutup user, ensurePostTab mengadopsi tab FB lain /
+       membuat baru dan mencatat ID-nya kembali. */
+    await restorePostTab();
 
     /* PENTING: persist antrean ke storage agar processNextPost (alarm)
        tidak membaca queue kosong dan langsung "Antrean selesai". */
@@ -160,6 +164,10 @@
     await setRunning(false);
     keepAwakeOff();
     if (reason) await log(reason, "warn");
+    /* Sesi berakhir: lupakan ID postTab (storage + memori). Tabnya sengaja
+       TIDAK ditutup — dipakai ulang sesi berikutnya via restorePostTab +
+       guard sameGroupUrl di ensurePostTab (anti tab numpuk antar sesi). */
+    await forgetPostTab();
   }
 
   /* ---------------- STATUS SEBENARNYA (PEMULIHAN STATUS BASI) ----------------
@@ -289,7 +297,12 @@
     let failedBatch = false;
     run.busy = true;
     try {
-      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX]);
+      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX, STORAGE.POST_TAB_ID]);
+      /* Worker MV3 bisa bangun dengan memori kosong: pulihkan ID tab posting
+         dari storage agar tab FB lama DIPAKAI ULANG (bukan buka tab baru
+         tiap batch — anti tab numpuk). Bila ID basi, ensurePostTab yang
+         mengurus adopsi/pembuatan tab. */
+      await restorePostTab();
       /* FALLBACK: bila storage kosong (mis. alarm fire sebelum persist),
          pakai state in-memory jangan overwrite dengan nilai kosong. */
       run.queue = st[STORAGE.QUEUE] && st[STORAGE.QUEUE].length ? st[STORAGE.QUEUE] : run.queue || [];
@@ -373,8 +386,26 @@
             .map((g) => ({ name: g.name || g.url, url: g.url }))
             .filter((g) => g.url)
         : [];
+      /* Mode posting ditentukan SEBELUM tab batch dibuat:
+         - autoposting -> postTab (1 tab FB dipakai ulang, kontrak bagian 5);
+         - manual -> tab BARU tiap batch via ensureManualPostTab (pool FIFO
+           maks LIMITS.MAX_MANUAL_TABS; tab manual tertua ditutup otomatis
+           saat pool penuh — tanpa timing khusus, tab tidak pernah numpuk). */
+      const autoPost = run.settings.autoPost !== false;
+      /* MODE MANUAL WAJIB TAB TERLIHAT: user butuh melihat & mengklik
+         tombol Posting sendiri selama jendela 10 detik. Abaikan
+         run.showFbTab untuk langkah ini — tab FB selalu diaktifkan +
+         difokuskan (mode autoposting tetap menghormati showFbTab).
+         Dipaksa SEBELUM tab batch dibuat agar tab manual baru langsung
+         aktif & terfokus. */
+      if (!autoPost && !run.showFbTab) {
+        run.showFbTab = true;
+        await log("Mode manual: tab FB difokuskan agar Anda bisa klik Posting sendiri.", "info");
+      }
       await log(`Navigasi natural ke grup: ${group.name || group.url}...`, "info");
-      const navTab = await ensurePostTab(FB_HOME);
+      const navTab = autoPost
+        ? await ensurePostTab(FB_HOME)
+        : await ensureManualPostTab(FB_HOME);
       await waitTabLoaded(navTab.id, 45000);
       await ensureContentScript(navTab.id);
       const nav = await sendToContent(navTab.id, { type: MSG.NAV_HOME_TO_COMPOSER, targetGroupUrl: group.url }, 120000);
@@ -390,23 +421,23 @@
            true  -> content script klik tombol Posting otomatis.
            false -> content script berhenti setelah media+caption terisi,
                     beri user MANUAL_POST_WINDOW_MS untuk klik Posting
-                    sendiri; setelah itu alur lanjut tanpa memedulikan. */
-      const autoPost = run.settings.autoPost !== false;
+                    sendiri; setelah itu alur lanjut tanpa memedulikan.
+         Nilai autoPost sudah dibaca SEBELUM tab batch dibuat (lihat blok
+         mode manual vs autoposting sebelum navigasi natural di atas). */
       await log(
         `Memproses materi #${mi + 1} -> ${run.groupName} (${run.cursor + 1}/${run.queue.length}) — mode: ${autoPost ? "autoposting (klik Posting otomatis)" : "manual (jendela " + LIMITS.MANUAL_POST_WINDOW_MS / 1000 + "s untuk klik Posting sendiri)"}${run.batchPost ? ` + ${extras.length} grup tambahan via picker` : " (tanpa grup tambahan)"}`,
         "info",
       );
 
-      /* MODE MANUAL WAJIB TAB TERLIHAT: user butuh melihat & mengklik
-         tombol Posting sendiri selama jendela 10 detik. Abaikan
-         run.showFbTab untuk langkah ini — tab FB selalu diaktifkan +
-         difokuskan (mode autoposting tetap menghormati showFbTab). */
-      if (!autoPost && !run.showFbTab) {
-        run.showFbTab = true;
-        await log("Mode manual: tab FB difokuskan agar Anda bisa klik Posting sendiri.", "info");
-      }
-
-      const tab = await ensurePostTab(run.groupUrl);
+      /* Pemilihan tab EXECUTE_POST:
+         - autoposting -> postTab (1 tab FB dipakai ulang; guard
+           sameGroupUrl & kontrak anti-reload tetap berlaku).
+         - manual -> pakai tab YANG SAMA dengan navTab batch ini:
+           composer yang dibuka NAV_HOME_TO_COMPOSER harus tetap utuh di
+           situ. Memanggil jalur postTab kedua di mode manual bisa
+           menabrak tab lain dan menghancurkan composer yang menunggu
+           klik user. */
+      const tab = autoPost ? await ensurePostTab(run.groupUrl) : navTab;
       /* Kontrak: ensurePostTab TIDAK me-reload tab bila sudah di grup target
          (sameGroupUrl) — reload menghancurkan composer modal yang dibuka
          NAV_HOME_TO_COMPOSER. waitTabLoaded di sini hanya jaring pengaman

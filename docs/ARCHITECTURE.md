@@ -82,6 +82,8 @@ tidak ada tipe pesan lama yang hilang.
 | `postMatrix`                | `{materialKey: {groupUrl: {ok, mi, gi, at, error}}}` — status ✅/❌ per materi×grup, persisten lintas sesi; dihapus hanya via tombol "Hapus Riwayat Status" | background (markGroup), dashboard (applyResult, btnClearMatrix) |
 | `groupResults`              | `{groupUrl: {ok, mi, at, error}}` — badge sesi berjalan; di-reset tiap `startPosting`                                                        | background (markGroup, startPosting), dashboard           |
 | `queue` / `cursor`          | indeks materi & posisi berjalan                                                                                                              | background (scheduler)                                    |
+| `postTabId`                 | ID tab FB "postTab" yang dipakai ulang antar langkah/antar sesi posting (`null` saat tidak ada); ID basi dibersihkan otomatis                 | background (tabs: rememberPostTab/forgetPostTab)          |
+| `postTabManualIds`           | array ID tab mode manual (FIFO, maks `LIMITS.MAX_MANUAL_TABS` = 3) — tab manual TERTUA ditutup saat pool penuh; ID basi dibersihkan otomatis | background (tabs: ensureManualPostTab/restoreManualTabs)  |
 | `stats`                     | `{"YYYY-MM-DD": jumlah}` untuk batas harian                                                                                                  | background (scheduler)                                    |
 | `status`                    | `{running}` — dipulihkan/dibersihkan oleh `scheduler.getStatus()`, karena kunci ini bisa tertinggal bila sesi berakhir tanpa `stopPosting()` | background (messaging.setRunning, scheduler.getStatus)    |
 | `postingLogs`               | maksimal 500 baris log terakhir                                                                                                              | background (messaging.log)                                |
@@ -116,14 +118,40 @@ dashboard btnStart --START_POSTING--> background.startPosting()
   antrean habis atau limit harian tercapai -> stopPosting(reason)
 ```
 
-Semua langkah browser memakai satu tab FB biasa (unpinned) yang dipakai ulang. Fokus tab
-hanya berpindah bila `ui.showFbTab` aktif; setelah tiap posting fokus kembali ke
+Mode autoposting memakai SATU tab FB biasa (unpinned) yang dipakai ulang untuk
+semua langkah; mode manual memakai pool tab manual (kontrak lengkap di bawah). Fokus
+tab hanya berpindah bila `ui.showFbTab` aktif; setelah tiap posting fokus kembali ke
 dashboard. **Kontrak navigasi: `ensurePostTab(url)` DILARANG me-reload tab yang sudah
 berada di grup target** — `chrome.tabs.update({url})` pada tab yang sama memicu full
 page reload yang menghancurkan composer modal yang baru dibuka `NAV_HOME_TO_COMPOSER`.
 Karena itu `ensurePostTab` memakai `sameGroupUrl()` (bandingkan URL kanonis
 `/groups/{id}`) dan bila sama hanya melepas pin + fokus tanpa navigasi. Bila ragu
 (URL tidak kanonis), pilih aman: tetap navigasi (perilaku lama).
+**Kontrak anti tab numpuk: ID postTab dipersist (`STORAGE.POST_TAB_ID`) dan selalu
+ditulis lewat `rememberPostTab()`/`forgetPostTab()`** (`src/background/tabs.js`);
+worker MV3 yang bangun dari tidur memulihkannya via `restorePostTab()` (dipanggil
+scheduler di `startPosting()` dan `processNextPost()`). Bila ID basi (tab ditutup
+user), `ensurePostTab` mengadopsi tab facebook.com yang sudah terbuka sebelum membuat
+tab baru, dan `create` hanya terjadi bila benar-benar tidak ada tab yang bisa dipakai
+— dalam kasus itu tab lama milik sesi ditutup dulu agar tidak menumpuk satu per satu
+batch. `stopPosting()` sengaja TIDAK menutup tabnya; ia hanya melupakan ID-nya
+(dipakai-ulang kembali sesi berikutnya via guard `sameGroupUrl`).
+**Mode manual — pool tab FIFO (batas `LIMITS.MAX_MANUAL_TABS` = 3):** kontrak reuse
+di atas hanya berlaku untuk autoposting. Saat checkbox "autoposting" tidak dicentang,
+scheduler membaca `run.settings.autoPost` SEBELUM tab batch dibuat lalu memanggil
+`ensureManualPostTab(FB_HOME)` (`src/background/tabs.js`): SELALU `chrome.tabs.create()`
+tab baru — composer batch sebelumnya dibiarkan utuh, user bebas mengklik Posting kapan
+pun. ID-nya dipersist ke `STORAGE.POST_TAB_MANUAL_IDS` (array FIFO); saat pool penuh
+(3 tab), tab manual TERTUA milik sesi ditutup otomatis SEBELUM tab baru dibuka — FIFO,
+tanpa timing khusus, tanpa deteksi klik user (mustahil: `EXECUTE_POST` mode manual
+selalu membalas `ok:true` tanpa verifikasi klik). `NAV_HOME_TO_COMPOSER` dan
+`EXECUTE_POST` berjalan di tab manual YANG SAMA (`tab = navTab`) agar composer tidak
+dipindah tab; `findExistingFbTab()` mengecualikan ID pool manual sehingga adopsi mode
+auto tidak pernah membajak composer manual. Tab manual TIDAK termasuk pool
+autoposting, `stopPosting()` tetap tidak menutup tab apa pun (pool tetap terpersist;
+batas 3 ditegakkan saat batch manual berikutnya berjalan), dan jendela
+`LIMITS.MANUAL_POST_WINDOW_MS` (10 detik) tetap berlaku. Konsekuensi yang disadari:
+eviction bisa menutup tab manual yang belum sempat diklik user — harga dari batas 3.
 Bila `settings.autoPost` **tidak aktif**, langkah `EXECUTE_POST` menjalankan
 workflow yang SAMA PERSIS dengan autoposting (media dulu + caption + tambah
 grup), hanya klik Posting akhir yang diserahkan ke user: scheduler MEMAKSA
@@ -178,6 +206,43 @@ user mengklik atau tidak.
 5. Jalankan `node tools/verify.js` sampai semua check lulus.
 
 ## 8. Keputusan Desain Penting
+
+- **ID tab posting dipersist (`STORAGE.POST_TAB_ID`) — bug "tab FB menumpuk satu
+  per satu postingan".** Temuan lapangan: `run.postTabId` tadinya hanya in-memory
+  DAN di-nol-kan `startPosting()`, sementara alarm `post-tick` menyala tiap 180–300
+  detik dan service worker MV3 bisa dimatikan Chrome di antara dua alarm. Worker
+  yang bangun lagi membaca ulang `queue/cursor/materials` dari storage tapi TIDAK
+  tahu tab FB lama masih terbuka → `ensurePostTab()` selalu jatuh ke
+  `chrome.tabs.create()` → tiap batch menyisakan satu tab baru, tab lama dibiarkan
+  hidup. Perbaikan tiga lapis di `src/background/tabs.js`:
+  (1) satu pintu tulis `rememberPostTab()` (memori + storage, best-effort) /
+  `forgetPostTab()` / `restorePostTab()` — dilarang mengubah `run.postTabId`
+  langsung di luar helper ini;
+  (2) `restorePostTab()` dipanggil scheduler di `startPosting()` dan
+  `processNextPost()` (jalur worker bangun dari tidur);
+  (3) `ensurePostTab()` berjenjang: pakai-ulang tab tercatat → adopsi tab
+  facebook.com yang sudah terbuka (`findExistingFbTab()`, tab dashboard ikut
+  ter-query sehingga difilter via `DASH_URL`) → baru `chrome.tabs.create()`,
+  dan bila create terjadi sementara tab lama milik sesi masih terdeteksi,
+  tab lama ditutup dulu. Tab sengaja TIDAK ditutup di akhir sesi (biaya navigasi
+  login/render FB mahal); `stopPosting()` hanya melupakan ID-nya, sesi berikutnya
+  memakai ulang via guard `sameGroupUrl` (bila URL kanonis sama, tab tidak
+  di-reload — kontrak bagian 5 tetap berlaku).
+
+- **Mode manual = pool tab baru FIFO maks 3 (`STORAGE.POST_TAB_MANUAL_IDS`) —
+  bukan new tab tanpa batas, bukan reuse 1 tab.** Alasan: (a) reuse 1 tab
+  menghancurkan composer batch sebelumnya setiap batch berikutnya menavigasi
+  ulang tab yang sama — user yang lambat kehilangan isinya; (b) new tab tanpa
+  batas mengembalikan bug "tab menumpuk" dan membebani RAM/CPU (tiap tab FB =
+  renderer + realtime sendiri) sehingga alarm/worker bisa terlambat dan content
+  script gagal. Kompromi: tiap batch manual MEMANG membuka tab baru (user punya
+  waktu panjang untuk klik Posting), tapi ID-nya masuk pool berpersist berbatas
+  `LIMITS.MAX_MANUAL_TABS` = 3 — batch manual keempat menutup tab manual tertua
+  lebih dulu (FIFO, tanpa timing khusus). Deteksi "user sudah mengklik" sengaja
+  TIDAK dipakai: background mustahil mengetahuinya, jadi eviction hanya
+  berbasis jumlah tab. Tab autoposting tidak pernah masuk pool;
+  `findExistingFbTab()` mengecualikan pool manual agar adopsi mode auto tidak
+  membajak composer manual.
 
 - **Blob media wajib persisten di IndexedDB sesi (`background/media-store.js`)
   dan media yang hilang = STOP TOTAL, bukan posting teks diam-diam.**

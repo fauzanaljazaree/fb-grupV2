@@ -848,6 +848,27 @@ function checkMediaPersistence() {
   report(/console\.warn\(`\[FB-AutoPoster\] Media/.test(posting), "posting.js: skip media tidak pernah diam-diam (console.warn saat data URL kosong)", "ok");
 }
 
+/* ---------- Check mode manual: pool tab FIFO (maks MAX_MANUAL_TABS) ----------
+   Mode manual harus: (1) selalu tabs.create baru via ensureManualPostTab,
+   (2) EVICT tab manual tertua saat pool penuh (tanpa timing khusus),
+   (3) pakai navTab yang sama untuk EXECUTE_POST (composer NAV tidak boleh
+   dipindah), (4) adopsi auto mengecualikan pool manual (anti bajak composer),
+   (5) semua kunci lewat STORAGE.* (tanpa string ajaib). */
+function checkManualTabPool() {
+  const src = read("src/background/scheduler.js").replace(/\r/g, "");
+  const tabs = read("src/background/tabs.js").replace(/\r/g, "");
+  const cfg = read("src/shared/config.js").replace(/\r/g, "");
+  report(/MAX_MANUAL_TABS:\s*3/.test(cfg), "LIMITS.MAX_MANUAL_TABS = 3 (batas tab mode manual)", "ok");
+  report(/POST_TAB_MANUAL_IDS:\s*"postTabManualIds"/.test(cfg), "Kunci STORAGE.POST_TAB_MANUAL_IDS terdaftar di FBAP.config", "ok");
+  report(/async function ensureManualPostTab\(url\)/.test(tabs), "tabs.js punya ensureManualPostTab (pool mode manual)", "ok");
+  report(/while \(run\.manualTabIds\.length >= LIMITS\.MAX_MANUAL_TABS\)/.test(tabs), "Eviction FIFO: tab manual tertua ditutup saat pool penuh", "ok");
+  report(/STORAGE\.POST_TAB_MANUAL_IDS/.test(tabs), "Pool manual dipersist via STORAGE.POST_TAB_MANUAL_IDS (tanpa string ajaib)", "ok");
+  report(/manualIds\.has\(t\.id\)/.test(tabs), "findExistingFbTab mengecualikan pool manual (adopsi auto tidak membajak composer manual)", "ok");
+  report(/const navTab = autoPost\s*\? await ensurePostTab\(FB_HOME\)\s*: await ensureManualPostTab\(FB_HOME\);/.test(src), "Scheduler: autoposting pakai postTab, manual buka tab baru per batch (sebelum NAV)", "ok");
+  report(/const tab = autoPost \? await ensurePostTab\(run\.groupUrl\) : navTab;/.test(src), "EXECUTE_POST manual berjalan di tab NAV yang sama (composer utuh)", "ok");
+  report(/ensureManualPostTab/.test(src) && /ensureManualPostTab,/.test(tabs), "ensureManualPostTab terdaftar di API background.tabs dan dipakai scheduler", "ok");
+}
+
 /* ---------- 11. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
@@ -859,6 +880,7 @@ function checkMediaPersistence() {
   checkMsgConstants();
   checkPostingUsesComposerChain();
   checkAutoPostWiring();
+  checkManualTabPool();
   checkExtraGroupsWiring();
   checkPickerPortalSafe();
   checkSellGroupSkip();
