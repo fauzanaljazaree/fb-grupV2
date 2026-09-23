@@ -55,7 +55,8 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `PING`                         | background → content   | –                                                                    | Cek content script terpasang (`{ok:true,pong:true}`)                                                                                                                                                                                                                                                                                   |
 | `NAV_HOME_TO_GROUP`            | background → content   | –                                                                    | Navigasi natural, balas `{groupUrl, groupName}`                                                                                                                                                                                                                                                                                        |
 | `NAV_HOME_TO_COMPOSER`         | background → content   | –                                                                    | Navigasi natural + buka composer, balas `{groupUrl, groupName, url}`                                                                                                                                                                                                                                                                   |
-| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 9 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed, addedNames}` (added/failed = url grup tambahan; addedNames = [{url, name, how}] nama baris picker yang tercentang, how = exact|fuzzy) |
+| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 9 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed, addedNames}` (added/failed = url grup tambahan; addedNames = [{url, name, how}] nama baris picker yang tercentang, how = exact|fuzzy). Bila grup tidak punya kolom posting (hanya tombol "Jual sesuatu"), `openComposer()` melempar Error ber-prefix `SKIP_SELL_GROUP:` yang mengalir sebagai `error` |
+| `SELL_GROUP_MARKED`            | background → dashboard | `{url, name}`                                                        | Grup terdeteksi jual-beli: dashboard me-uncheck barisnya realtime + badge 🏷️ (lihat §8) |
 | `EXECUTE_SCRAPE`               | background → content   | –                                                                    | Scraper daftar grup mode lama (scroll window)                                                                                                                                                                                                                                                                                          |
 | `START_SCAN`                   | dashboard → background | –                                                                    | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js`                                                                                  |
 | `SCAN_GROUPS`                  | background → content   | –                                                                    | `scanGroups()`: loop scroll sidebar (maks 80 pass) + kumpulkan `a[href*="/groups/"]`, balas `{ok, sourceUrl, scannedAt, groups}`                                                                                                                                                                                                       |
@@ -86,6 +87,7 @@ tidak ada tipe pesan lama yang hilang.
 | `postingLogs`               | maksimal 500 baris log terakhir                                                                                                              | background (messaging.log)                                |
 | `ui`                        | `{showFbTab}`                                                                                                                                | dashboard & background                                    |
 | `groups` / `selectedGroups` | data grup (fitur scraping nonaktif)                                                                                                          | dashboard (groups)                                        |
+| `sellGroups`                | `{groupUrl: {at, name}}` — label permanen "grup jual-beli" (hanya tombol "Jual sesuatu", tanpa kolom posting); dilewati di `startPosting`, di-uncheck otomatis; dihapus hanya via tombol "Hapus label jual-beli" | background (handleSkipSellGroup), dashboard (applySellGroupMarked, btnClearSell, btnDeleteGroups) |
 
 ## 5. Alur Posting (satu materi)
 
@@ -176,6 +178,32 @@ user mengklik atau tidak.
 
 ## 8. Keputusan Desain Penting
 
+- **Grup tanpa kolom posting ("Jual sesuatu") di-SKIP, diberi LABEL permanen,
+  dan di-uncheck otomatis.** Temuan lapangan: sebagian grup tidak menyediakan
+  trigger "Tulis sesuatu..." / "Write something..." — tombol **"Jual sesuatu" /
+  "Sell something"** (alur Marketplace) menggantikannya, sehingga composer
+  tidak akan pernah terbuka. Karena itu `openComposer()`
+  (`src/content/posting.js`) mengecek marker jual-beli via
+  `detectSellOnlyMarker()` (`src/content/dom.js`, keyword `SELL_ONLY_KW`
+  ID+EN di `src/content/selectors.js`) DUA KALI: sebelum menunggu trigger
+  (hemat ±45 detik tunggu sia-sia per grup) dan sekali lagi setelah window
+  trigger habis (anti false-positive pada grup yang lambat render — tanpa
+  trigger + ada marker barulah disimpulkan jual-beli). Bila ketemu, lempar
+  Error ber-prefix **`SKIP_SELL_GROUP:`** — kontrak content → scheduler.
+  Scheduler (`src/background/scheduler.js`) mengenali prefix itu (dua jalur:
+  cabang `!res.ok` DAN blok `catch`) lalu memanggil `handleSkipSellGroup()`:
+  (1) tandai ❌ dengan alasan jual-beli (BUKAN pesan gagal teknis),
+  (2) tulis label permanen ke `STORAGE.SELL_GROUPS`
+  (`{groupUrl: {at, name}}`, hanya grup UTAMA batch yang dilabeli; grup
+  tambahan cukup ❌ untuk batch itu), (3) **uncheck** URL grup dari
+  `STORAGE.SELECTED_GROUPS`, (4) kirim `MSG.SELL_GROUP_MARKED` ke dashboard
+  agar baris ter-uncheck realtime + badge 🏷️, lalu lanjut antrean (bukan
+  berhenti). Label menang atas centang: `startPosting()` memfilter grup
+  berlabel SEBELUM antrean dibangun (hemat navigasi sia-sia) — user yang
+  ingin mencoba lagi harus menghapus label via tombol **"Hapus label
+  jual-beli"** (atau hapus grupnya). Keyword memakai frasa PENUH
+  "jual sesuatu"/"sell something" (bukan "jual" saja) agar tidak
+  false-positive pada teks "Jual" di nama grup/feed Marketplace.
 - **findPostButton() TIDAK BOLEH mengklik toggle "Posting sebagai anonim".**
   Temuan lapangan: `POST_BUTTON_SELECTORS` (`aria-label*="Posting"/"Post"`)
   juga mencocokkan switch **"Posting sebagai anonim" / "Post anonymously"**

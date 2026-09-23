@@ -60,6 +60,17 @@
   /** Tombol tutup picker di bawah ("Selesai" / "Done"). */
   const GROUP_PICKER_DONE_KW = ["selesai", "done"];
 
+  /* ---------------- GRUP JUAL-BELI (tanpa kolom posting) ----------------
+     Beberapa grup tidak menyediakan trigger "Tulis sesuatu..." /
+     "Write something..." — sebagai gantinya hanya ada tombol
+     "Jual sesuatu" / "Sell something" (alur Marketplace). Grup seperti
+     ini TIDAK BISA diposting alur ini -> dideteksi di openComposer()
+     dan dilempar sebagai Error "SKIP_SELL_GROUP: ..." agar scheduler
+     menandai, melabeli (STORAGE.SELL_GROUPS) & me-uncheck grupnya.
+     Keyword penuh (bukan "jual" saja) supaya tidak false-positive pada
+     teks "Jual" di nama grup/marketplace. ID & EN (guideline §10). */
+  const SELL_ONLY_KW = ["jual sesuatu", "sell something"];
+
   content.selectors = {
     SYSTEM_GROUP_URL,
     GRUP_LINK,
@@ -79,5 +90,6 @@
     GROUP_PICKER_DONE_KW,
     POST_BUTTON_POISON_RE,
     POST_BUTTON_LABEL_RE,
+    SELL_ONLY_KW,
   };
 })(globalThis);

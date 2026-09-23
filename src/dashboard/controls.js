@@ -203,6 +203,9 @@
       $("queueInfo").textContent = `Antrean Tersisa: ${msg.remaining}`;
     } else if (msg.type === MSG.GROUP_RESULT) {
       try { dashboard.groups.applyResult(msg); } catch (e) { /* abaikan */ }
+    } else if (msg.type === MSG.SELL_GROUP_MARKED) {
+      /* Grup terdeteksi jual-beli: uncheck baris + badge 🏷️ realtime. */
+      try { dashboard.groups.applySellGroupMarked(msg); } catch (e) { /* abaikan */ }
     }
   });
 
@@ -217,7 +220,7 @@
         logs.forEach((l) => addLog(l.text, l.cls));
       }
     }
-    if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS]) loadGroups();
+    if (changes[STORAGE.GROUPS] || changes[STORAGE.SELECTED_GROUPS] || changes[STORAGE.SELL_GROUPS]) loadGroups();
     if (changes[STORAGE.ACCOUNT_NAME]) {
       const nv = changes[STORAGE.ACCOUNT_NAME].newValue;
       const saved = typeof nv === "string" ? nv : (nv && nv.name) || "";

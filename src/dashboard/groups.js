@@ -22,6 +22,11 @@
   /* Matriks status persisten: {materialKey: {groupUrl: {ok, mi, gi, at, error}}}.
      Tidak di-reset saat sesi baru — hanya tombol "Hapus Riwayat Status". */
   let postMatrix = {};
+  /* Label permanen grup jual-beli: {groupUrl: {at, name}}. Diisi background
+     saat content script mendeteksi grup hanya punya tombol "Jual sesuatu"
+     (tanpa kolom posting). Grup berlabel ditandai 🏷️ di tabel dan di-uncheck
+     otomatis; hapus hanya via tombol "Hapus label jual-beli". */
+  let sellGroups = {};
 
   /** Kunci matriks materi ke-i pada daftar materi yang sedang dimuat. */
   function keyOf(mi) {
@@ -48,13 +53,14 @@
     return g.name.toLowerCase().includes(q) || g.url.toLowerCase().includes(q);
   }
 
-  /** Muat daftar grup + pilihan + hasil posting terakhir + matriks status. */
+  /** Muat daftar grup + pilihan + hasil posting terakhir + matriks status + label jual-beli. */
   async function loadGroups() {
-    const data = await get([STORAGE.GROUPS, STORAGE.SELECTED_GROUPS, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX]);
+    const data = await get([STORAGE.GROUPS, STORAGE.SELECTED_GROUPS, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX, STORAGE.SELL_GROUPS]);
     State.groups = data[STORAGE.GROUPS] || [];
     State.selected = new Set(data[STORAGE.SELECTED_GROUPS] || []);
     groupResults = data[STORAGE.GROUP_RESULTS] || {};
     postMatrix = data[STORAGE.POST_MATRIX] || {};
+    sellGroups = data[STORAGE.SELL_GROUPS] || {};
     renderGroups();
   }
 
@@ -102,7 +108,7 @@
       <tr>
         <td>${i + 1}</td>
         <td><input type="checkbox" data-url="${escapeHtml(g.url)}" ${State.selected.has(g.url) ? "checked" : ""} /></td>
-        <td>${escapeHtml(g.name)}</td>
+        <td>${escapeHtml(g.name)}${sellGroups[g.url] ? ' <span title="Grup jual-beli: hanya ada tombol \'Jual sesuatu\' (tanpa kolom posting) — dilewati otomatis. Hapus label via tombol \'Hapus label jual-beli\' bila ingin mencoba lagi." style="color:var(--amber)">🏷️ Jual-beli</span>' : ""}</td>
         <td><a href="${escapeHtml(g.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(g.url)}</a></td>
         <td style="white-space:nowrap; max-width:260px; overflow:hidden; text-overflow:ellipsis">${statusCell(g.url)}</td>
       </tr>`).join("");
@@ -171,10 +177,42 @@
     State.groups = State.groups.filter((g) => !doomed.has(g.url));
     /* Bersihkan seleksi yang URL-nya sudah tidak ada (anti URL yatim). */
     State.selected = new Set([...State.selected].filter((u) => State.groups.some((g) => g.url === u)));
+    /* Label jual-beli milik grup yang dihapus ikut dibuang (anti URL yatim). */
+    const fresh = { ...((await get([STORAGE.SELL_GROUPS]))[STORAGE.SELL_GROUPS] || {}) };
+    const doomedSell = Object.keys(fresh).filter((u) => doomed.has(u));
+    if (doomedSell.length) {
+      for (const u of doomedSell) delete fresh[u];
+      await setStrict({ [STORAGE.SELL_GROUPS]: fresh }).catch(() => {});
+      sellGroups = fresh;
+    }
     await setStrict({ [STORAGE.GROUPS]: State.groups, [STORAGE.SELECTED_GROUPS]: [...State.selected] }).catch(() => {});
     renderGroups();
-    addLog(`${doomed.size} grup dihapus dari storage.`, "warn");
+    addLog(`${doomed.size} grup dihapus dari storage.${doomedSell.length ? ` ${doomedSell.length} label jual-beli ikut dihapus.` : ""}`, "warn");
   });
 
-  dashboard.groups = { loadGroups, renderGroups, matchesFilter, applyResult, resetResults };
+  /* ---------------- LABEL GRUP JUAL-BELI ---------------- */
+  /* Grup baru saja terdeteksi jual-beli di lapangan (SELL_GROUP_MARKED
+     dari background): uncheck barisnya realtime agar tidak ikut antrean
+     sesi berikutnya. */
+  function applySellGroupMarked(msg) {
+    if (!msg || !msg.url) return;
+    sellGroups[msg.url] = { at: Date.now(), name: msg.name || msg.url };
+    if (State.selected.delete(msg.url)) {
+      setStrict({ [STORAGE.SELECTED_GROUPS]: Array.from(State.selected) }).catch(() => {});
+    }
+    renderGroups();
+    addLog(`🏷️ "${msg.name || msg.url}" ditandai grup jual-beli (tanpa kolom posting) — centang dilepas, akan dilewati otomatis.`, "warn");
+  }
+
+  /* Reset SEMUA label jual-beli (grup berubah tipe / false positive):
+     label hilang, grup bisa dicentang & dicoba lagi sesi berikutnya. */
+  $("btnClearSell").addEventListener("click", async () => {
+    const n = Object.keys(sellGroups).length;
+    sellGroups = {};
+    await setStrict({ [STORAGE.SELL_GROUPS]: {} }).catch(() => {});
+    renderGroups();
+    addLog(n ? `${n} label jual-beli dihapus — semua grup bisa dicoba lagi.` : "Tidak ada label jual-beli untuk dihapus.", n ? "warn" : "info");
+  });
+
+  dashboard.groups = { loadGroups, renderGroups, matchesFilter, applyResult, resetResults, applySellGroupMarked };
 })(globalThis);

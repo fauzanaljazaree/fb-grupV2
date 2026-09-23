@@ -65,6 +65,26 @@
   }
 
   /* ---------- PENCARI ELEMEN COMPOSER ---------- */
+  /* ---------- DETEKSI GRUP JUAL-BELI (tanpa kolom posting) ---------- */
+
+  /** Marker "Jual sesuatu" / "Sell something" terlihat di halaman?
+      Dipakai openComposer() sebagai bukti grup TIDAK menyediakan kolom
+      posting biasa (hanya alur Marketplace) -> skip grup ini.
+      Hanya role/teks + box model (tanpa class dinamis FB, guideline §1).
+      Kembalikan elemen tombolnya atau null. */
+  function detectSellOnlyMarker() {
+    const KW = content.selectors.SELL_ONLY_KW;
+    for (const el of document.querySelectorAll('div[role="button"]')) {
+      if (el.offsetParent === null) continue;
+      const r = el.getBoundingClientRect();
+      if (r.width < 40 || r.height < 16) continue;
+      const t = (el.textContent || "").trim().toLowerCase();
+      if (t && t.length <= 60 && KW.some((k) => t.includes(k))) return el;
+    }
+    return null;
+  }
+
+  /* ---------- PENCARI ELEMEN COMPOSER ---------- */
 
   function isEditableVisible(el) {
     if (!el || el.offsetParent === null) return false;
@@ -636,6 +656,7 @@
     waitForSelector,
     waitForUrlContains,
     waitForTextInTrigger,
+    detectSellOnlyMarker,
     isEditableVisible,
     isElementVisible,
     isInComposerDialog,

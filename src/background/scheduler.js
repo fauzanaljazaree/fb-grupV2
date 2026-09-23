@@ -13,6 +13,8 @@
    Navigasi natural dilakukan SETIAP langkah (cari grup target di sidebar
    -> klik), jeda acak setiap pindah grup.
    Gagal di 1 batch -> lanjut batch berikutnya + tandai ✅/❌ di tabel.
+   Grup jual-beli (SKIP_SELL_GROUP dari openComposer) -> label permanen
+   SELL_GROUPS + uncheck + lanjut antrean (bukan gagal teknis).
    Ketika antrean habis / limit harian tercapai -> stopPosting.
    ========================================================= */
 
@@ -44,6 +46,21 @@
 
     run.materials = materialList;
     run.groups = groupList.map((g) => ({ name: g.name || g.url, url: g.url }));
+    /* Grup berlabel jual-beli (pernah terdeteksi hanya punya tombol
+       "Jual sesuatu", STORAGE.SELL_GROUPS) DILEWATI sejak awal: tidak
+       masuk antrean, tidak dinavigasi sia-sia. Label menang atas centang
+       — bila user meng-centang ulang grup jual-beli, tetap difilter
+       (hapus labelnya via tombol dashboard "Hapus label jual-beli"
+       untuk mencoba lagi). */
+    const sellMap = (await storageGet([STORAGE.SELL_GROUPS]))[STORAGE.SELL_GROUPS] || {};
+    const skippedSell = run.groups.filter((g) => sellMap[g.url]);
+    if (skippedSell.length) {
+      run.groups = run.groups.filter((g) => !sellMap[g.url]);
+      await log(`Melewati ${skippedSell.length} grup jual-beli (tanpa kolom posting): ${skippedSell.map((g) => g.name || g.url).join(", ")}.`, "warn");
+    }
+    if (!run.groups.length) {
+      return { ok: false, error: "Semua grup terpilih berlabel jual-beli (tanpa kolom posting). Hapus labelnya di dashboard bila ingin mencoba lagi." };
+    }
     run.settings = { ...DEFAULTS.settings, ...settings };
     /* Default "Tampilkan tab FB saat posting" = AKTIF (checkbox dashboard
        tercentang secara default); hanya dimatikan bila eksplisit false. */
@@ -191,6 +208,34 @@
     }
     await storageSet({ [STORAGE.GROUP_RESULTS]: run.results, [STORAGE.POST_MATRIX]: run.matrix });
     chrome.runtime.sendMessage({ type: MSG.GROUP_RESULT, url, ok, mi, error: error || "" }).catch(() => {});
+  }
+
+  /** Pesan error content script menandakan grup jual-beli (tanpa kolom
+      posting)? Prefix SKIP_SELL_GROUP dilempar openComposer(); pesan bisa
+      terbungkus "Navigasi ke ... gagal: ..." sehingga pakai includes(). */
+  function isSkipSellError(msg) {
+    return typeof msg === "string" && msg.includes("SKIP_SELL_GROUP");
+  }
+
+  /** Grup terdeteksi jual-beli: tandai ❌ dengan alasan jual-beli (bukan
+      gagal teknis), tulis label permanen STORAGE.SELL_GROUPS, uncheck dari
+      SELECTED_GROUPS, beri tahu dashboard via MSG.SELL_GROUP_MARKED.
+      Hanya grup UTAMA batch yang dilabeli (deteksi terjadi di halamannya);
+      grup tambahan hanya ❌ untuk batch ini dan akan dicoba di batch lain.
+      Pemanggil yang melanjutkan antrean (cursor++, scheduleNext). */
+  async function handleSkipSellGroup(group, extraUrls, mi, gi) {
+    const why = 'Grup jual-beli — hanya ada tombol "Jual sesuatu" (tanpa kolom posting)';
+    await markGroup(group.url, false, mi, gi, why);
+    for (const url of extraUrls) await markGroup(url, false, mi, giOf(url), "Dilewati: grup utama batch jual-beli");
+    const sell = (await storageGet([STORAGE.SELL_GROUPS]))[STORAGE.SELL_GROUPS] || {};
+    sell[group.url] = { at: Date.now(), name: group.name || group.url };
+    await storageSet({ [STORAGE.SELL_GROUPS]: sell });
+    const sel = (await storageGet([STORAGE.SELECTED_GROUPS]))[STORAGE.SELECTED_GROUPS] || [];
+    const drop = new Set([group.url, ...extraUrls]);
+    const nextSel = sel.filter((u) => !drop.has(u));
+    if (nextSel.length !== sel.length) await storageSet({ [STORAGE.SELECTED_GROUPS]: nextSel });
+    chrome.runtime.sendMessage({ type: MSG.SELL_GROUP_MARKED, url: group.url, name: group.name || group.url }).catch(() => {});
+    await log(`⏭️ Dilewati ${group.name || group.url}: grup jual-beli (tanpa kolom posting). Ditandai 🏷️ & centangnya dilepas — lanjut batch berikutnya.`, "warn");
   }
 
   async function processNextPost() {
@@ -360,10 +405,15 @@
         );
       } else {
         const msg = (res && res.error) || "tidak ada respons";
-        /* Batch gagal total: tandai grup utama + semua tambahan ❌. */
-        await markGroup(group.url, false, mi, gi, msg);
-        for (const ex of extras) await markGroup(ex.url, false, mi, giOf(ex.url), msg);
-        await log(`GAGAL materi #${mi + 1} di ${run.groupName}: ${msg} — lanjut batch berikutnya.`, "err");
+        if (isSkipSellError(msg)) {
+          /* SKIP_SELL_GROUP: grup jual-beli — label + uncheck + lanjut. */
+          await handleSkipSellGroup(group, extras.map((ex) => ex.url).filter(Boolean), mi, gi);
+        } else {
+          /* Batch gagal total: tandai grup utama + semua tambahan ❌. */
+          await markGroup(group.url, false, mi, gi, msg);
+          for (const ex of extras) await markGroup(ex.url, false, mi, giOf(ex.url), msg);
+          await log(`GAGAL materi #${mi + 1} di ${run.groupName}: ${msg} — lanjut batch berikutnya.`, "err");
+        }
       }
 
       /* Opsi C: setelah posting selesai, fokus balik ke dashboard */
@@ -414,7 +464,10 @@
         const group = (run.groups && run.groups[gi]) || null;
         const extras = (item && Array.isArray(item.extras) ? item.extras : []).map((g) => g.url).filter(Boolean);
         const errMsg = (err && err.message) || String(err);
-        if (group && group.url) {
+        if (group && group.url && isSkipSellError(errMsg)) {
+          /* SKIP_SELL_GROUP: bukan gagal teknis — label + uncheck + lanjut. */
+          await handleSkipSellGroup(group, extras, mi, gi);
+        } else if (group && group.url) {
           /* Batch gagal total: grup utama + semua tambahan ditandai ❌. */
           await markGroup(group.url, false, mi, gi, errMsg);
           for (const url of extras) await markGroup(url, false, mi, giOf(url), errMsg);

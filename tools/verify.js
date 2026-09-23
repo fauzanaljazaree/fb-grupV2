@@ -799,6 +799,34 @@ function checkScanWiring() {
   report(/function requestScan[\s\S]*?ensureContentScript/.test(scan), "requestScan() punya fallback inject content script bila belum siap", "ok");
 }
 
+/* ---------- 10c. SKIP GRUP JUAL-BELI ("Jual sesuatu") ----------
+   Grup tanpa kolom posting dideteksi di openComposer() (marker
+   "Jual sesuatu"/"Sell something"), dilempar sebagai Error
+   SKIP_SELL_GROUP, scheduler melabeli permanen di SELL_GROUPS,
+   meng-uncheck dari SELECTED_GROUPS, dan memfilternya di startPosting. */
+function checkSellGroupSkip() {
+  const sel = read("src/content/selectors.js").replace(/\r/g, "");
+  const dom = read("src/content/dom.js").replace(/\r/g, "");
+  const posting = read("src/content/posting.js").replace(/\r/g, "");
+  const sched = read("src/background/scheduler.js").replace(/\r/g, "");
+  const groups = read("src/dashboard/groups.js").replace(/\r/g, "");
+  const controls = read("src/dashboard/controls.js").replace(/\r/g, "");
+  const html = read("dashboard.html");
+
+  report(/SELL_ONLY_KW\s*=\s*\["jual sesuatu",\s*"sell something"\]/.test(sel), "selectors.js: SELL_ONLY_KW ID+EN (frasa penuh, bukan 'jual' saja)", "ok");
+  report(/function detectSellOnlyMarker[\s\S]{0,700}?querySelectorAll\('div\[role="button"\]'\)[\s\S]{0,400}?toLowerCase\(\)[\s\S]{0,200}?includes\(k\)/.test(dom), "dom.js: detectSellOnlyMarker() role/teks case-insensitive (tanpa class dinamis FB)", "ok");
+  report(/detectSellOnlyMarker,/.test(dom), "dom.js: detectSellOnlyMarker diekspor", "ok");
+  report(/detectSellOnlyMarker\(\)[\s\S]{0,240}?SKIP_SELL_GROUP_PREFIX/.test(posting) && (posting.match(/SKIP_SELL_GROUP_PREFIX\} Grup jual-beli/g) || []).length >= 2, "posting.js: openComposer() cek marker jual-beli DUA kali (sebelum & sesudah window trigger)", "ok");
+  report(/function isSkipSellError[\s\S]{0,300}msg\.includes\("SKIP_SELL_GROUP"\)/.test(sched) && /function handleSkipSellGroup/.test(sched), "scheduler.js: isSkipSellError() + handleSkipSellGroup() ada", "ok");
+  report(/if \(isSkipSellError\(msg\)\)/.test(sched) && /isSkipSellError\(errMsg\)/.test(sched), "scheduler.js: SKIP_SELL_GROUP ditangani dua jalur (cabang !res.ok + blok catch)", "ok");
+  report(/SELL_GROUPS\]: sell/.test(sched) && /SELECTED_GROUPS\]: nextSel/.test(sched), "scheduler.js: label SELL_GROUPS dipersist + grup di-uncheck dari SELECTED_GROUPS", "ok");
+  report(/const sellMap = \(await storageGet\(\[STORAGE\.SELL_GROUPS\]\)\)/.test(sched) && /run\.groups\.filter\(\(g\) => !sellMap\[g\.url\]\)/.test(sched), "scheduler.js: startPosting memfilter grup berlabel jual-beli sebelum antrean dibangun", "ok");
+  report(/STORAGE\.SELL_GROUPS/.test(groups) && /function applySellGroupMarked/.test(groups) && /\$\("btnClearSell"\)/.test(groups) && /dashboard\.groups\s*=\s*\{[^}]*applySellGroupMarked/.test(groups), "dashboard groups.js: muat label, applySellGroupMarked (uncheck realtime), tombol reset diekspor/di-wire", "ok");
+  report(/sellGroups\[g\.url\]/.test(groups) && /Jual-beli/.test(groups), "dashboard groups.js: badge Jual-beli dirender per baris tabel", "ok");
+  report(/MSG\.SELL_GROUP_MARKED/.test(controls) && /changes\[STORAGE\.SELL_GROUPS\]/.test(controls), "dashboard controls.js: SELL_GROUP_MARKED ditangani + onChanged SELL_GROUPS", "ok");
+  report(/id="btnClearSell"/.test(html), "dashboard.html: tombol 'Hapus label jual-beli' ada", "ok");
+}
+
 /* ---------- 11. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
@@ -812,6 +840,7 @@ function checkScanWiring() {
   checkAutoPostWiring();
   checkExtraGroupsWiring();
   checkPickerPortalSafe();
+  checkSellGroupSkip();
   checkScanWiring();
   checkParity();
   checkLoadBackground();

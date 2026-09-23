@@ -9,6 +9,9 @@
                                  terisi, beri user MANUAL_POST_WINDOW_MS
                                  untuk klik Posting sendiri, lalu
                                  lanjut tanpa memedulikan hasilnya.
+   SEBELUM menunggu trigger: cek marker "Jual sesuatu" (grup tanpa
+   kolom posting) -> lempar Error "SKIP_SELL_GROUP: ..." supaya
+   scheduler melabeli & me-uncheck grup, lalu lanjut antrean.
    openComposer() dipisah agar bisa dipakai ulang oleh pesan
    NAV_HOME_TO_COMPOSER (uji navigasi home -> grup -> composer).
    ========================================================= */
@@ -28,6 +31,7 @@
     findEditor,
     findPostButton,
     waitForTextInTrigger,
+    detectSellOnlyMarker,
     findComposerDialog,
     findMediaScope,
     waitFor,
@@ -53,6 +57,12 @@
   /** Kata kunci trigger composer di halaman grup (ID & EN). */
   const COMPOSER_TRIGGERS = ["tulis sesuatu", "write something", "buat postingan"];
 
+  /** Prefix Error untuk grup jual-beli (hanya tombol "Jual sesuatu",
+      tanpa kolom posting). Kontrak content -> scheduler: bila pesan
+      error diawali string ini, scheduler melabeli grup di
+      STORAGE.SELL_GROUPS, me-uncheck-nya lalu lanjut antrean. */
+  const SKIP_SELL_GROUP_PREFIX = "SKIP_SELL_GROUP:";
+
   /* ---------------------------------------------------------
      BUKA COMPOSER (halaman grup -> editor siap)
      1. Klik trigger "Tulis sesuatu..." / "Write something..."
@@ -66,11 +76,27 @@
     const existing = await findEditor(3000);
     if (existing) return existing;
 
+    /* TEMUAN LAPANGAN: sebagian grup tidak punya kolom posting — tombol
+       "Jual sesuatu" / "Sell something" menggantikannya. Deteksi CEPAT
+       sebelum menunggu trigger (hemat 45 detik sia-sia per grup) —
+       bila marker terlihat langsung skip dengan error SKIP_SELL_GROUP. */
+    if (detectSellOnlyMarker()) {
+      throw new Error(`${SKIP_SELL_GROUP_PREFIX} Grup jual-beli — hanya ada tombol "Jual sesuatu" (tanpa kolom posting).`);
+    }
+
     const trigger = await waitForTextInTrigger(triggerTimeout, COMPOSER_TRIGGERS);
     if (trigger) {
       await humanScrollToEl(trigger);
       trigger.click();
       await sleep(randInt(1200, 2400));
+    } else {
+      /* Trigger tidak kunjung muncul dalam window tunggu: cek ulang
+         marker jual-beli SEKALI LAGI di sini — grup lambat render bisa
+         saja marker-nya baru muncul belakangan (anti false-positive:
+         tanpa trigger + marker baru disimpulkan jual-beli). */
+      if (detectSellOnlyMarker()) {
+        throw new Error(`${SKIP_SELL_GROUP_PREFIX} Grup jual-beli — hanya ada tombol "Jual sesuatu" (tanpa kolom posting).`);
+      }
     }
 
     const editor = await findEditor(30000);

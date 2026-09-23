@@ -51,7 +51,13 @@
     GROUPS_SNAPSHOT: "groupsSnapshot",
     SCAN_STATUS: "scanStatus",
     LAST_SCAN: "lastScan",
-    ACCOUNT_NAME: "accountName"
+    ACCOUNT_NAME: "accountName",
+    /* Label permanen "grup jual-beli": {groupUrl: {at, name}}. Diisi
+       background saat content script mendeteksi grup hanya menyediakan
+       tombol "Jual sesuatu" (tanpa kolom posting) — grup berlabel
+       dilewati di startPosting & di-uncheck otomatis. Dihapus hanya
+       via tombol "Hapus label jual-beli" dashboard. */
+    SELL_GROUPS: "sellGroups"
   };
 
   /* ---------------- TIPE PESAN ANTAR KONTEKS ----------------
@@ -80,7 +86,10 @@
     EXECUTE_SCRAPE: "EXECUTE_SCRAPE",
     NAV_HOME_TO_GROUP: "NAV_HOME_TO_GROUP",
     NAV_HOME_TO_COMPOSER: "NAV_HOME_TO_COMPOSER",
-    EXECUTE_POST: "EXECUTE_POST"
+    EXECUTE_POST: "EXECUTE_POST",
+    /* background -> dashboard: 1 grup baru terdeteksi jual-beli (tanpa
+       kolom posting) -> dashboard meng-uncheck barisnya realtime */
+    SELL_GROUP_MARKED: "SELL_GROUP_MARKED"
   };
 
   /* ---------------- BATAS OPERASIONAL ---------------- */
