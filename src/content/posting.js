@@ -804,6 +804,9 @@
     // 6. MODE AUTOPOSTING: klik tombol Posting
     const postBtn = await findPostButton(20000);
     if (!postBtn) throw new Error("Tombol Posting tidak ditemukan.");
+    /* Log diagnosis: bila masih ada salah klik, aria-label yang diklik
+       langsung terlihat di console tab Facebook. */
+    console.log("[FB-AutoPoster] Klik tombol Posting:", JSON.stringify(postBtn.getAttribute("aria-label") || postBtn.textContent || ""));
     await humanScrollToEl(postBtn);
     postBtn.click();
 

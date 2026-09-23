@@ -26,6 +26,14 @@
   /** Tombol submit postingan (ID & EN). */
   const POST_BUTTON_SELECTORS = ['div[role="button"][aria-label*="Posting"]', 'div[role="button"][aria-label*="Post"]'];
 
+  /** TEMUAN LAPANGAN: selektor aria-label*="Posting" di atas JUGA mencocokkan
+      toggle "Posting sebagai anonim" / "Post anonymously" di composer, sehingga
+      findPostButton() kadang mengklik toggle anonim alih-alih tombol submit.
+      POISON = kandidat yang mengandung kata-kata ini DITOLAK. */
+  const POST_BUTTON_POISON_RE = /(anonim|anonymous|sebagai|switch|toggle|jadwal|schedule|draft)/i;
+  /** Label submit yang sah (setelah normalisasi spasi+lowercase). */
+  const POST_BUTTON_LABEL_RE = /(posting|post|kirim|bagikan|share)/i;
+
   /* ---------------- SELEKTOR COMPOSER (workflow uji media+caption) ----------------
      HANYA aria-label/role/placeholder — JANGAN class dinamis FB (x9f619 dst). */
   const COMPOSER_TRIGGER_TEXT = "Tulis sesuatu...";
@@ -69,5 +77,7 @@
     GROUP_PICKER_TITLE_KW,
     GROUP_PICKER_SEARCH_KW,
     GROUP_PICKER_DONE_KW,
+    POST_BUTTON_POISON_RE,
+    POST_BUTTON_LABEL_RE,
   };
 })(globalThis);

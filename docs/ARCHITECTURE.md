@@ -176,6 +176,19 @@ user mengklik atau tidak.
 
 ## 8. Keputusan Desain Penting
 
+- **findPostButton() TIDAK BOLEH mengklik toggle "Posting sebagai anonim".**
+  Temuan lapangan: `POST_BUTTON_SELECTORS` (`aria-label*="Posting"/"Post"`)
+  juga mencocokkan switch **"Posting sebagai anonim" / "Post anonymously"**
+  di composer, dan toggle itu muncul lebih dulu di urutan DOM sehingga mode
+  autoposting pernah menyalakannya alih-alih men-submit. Karena itu
+  `findPostButton()` (`src/content/dom.js`) WAJIB memakai filter 4 lapis:
+  (1) scope utama = dialog composer dari `findComposerDialog()`
+  (document hanya fallback ber-skor lebih rendah), (2) tolak kandidat yang
+  labelnya mengandung `POST_BUTTON_POISON_RE` (`anonim|anonymous|sebagai|
+  switch|toggle|jadwal|schedule|draft`), (3) tolak label > 40 karakter
+  (label gabungan, bukan tombol submit), (4) tolak `aria-disabled="true"`;
+  lalu pilih skor tertinggi (aria-label eksak & pendek menang). Label poison
+  hidup di `src/content/selectors.js` — jangan hardcode di dom.js.
 - **URL grup selalu dikanonikalkan ke `/groups/{id}` setelah klik sidebar
   (SPA-safe).** Temuan lapangan: anchor di halaman `/groups` bisa href-nya
   `/groups/{id}/posts/...` atau `/groups/{id}/user/...` (permalink postingan

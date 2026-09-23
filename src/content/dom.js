@@ -10,7 +10,7 @@
   const FBAP = (root.FBAP = root.FBAP || {});
   const content = (FBAP.content = FBAP.content || {});
   const { sleep } = FBAP.time;
-  const { POST_BUTTON_SELECTORS, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE, CAPTION_EDITOR_LEXICAL, SYSTEM_GROUP_URL, ADD_GROUPS_BUTTON_KW, GROUP_PICKER_TITLE_KW, GROUP_PICKER_SEARCH_KW, GROUP_PICKER_DONE_KW } = content.selectors;
+  const { POST_BUTTON_SELECTORS, POST_BUTTON_POISON_RE, POST_BUTTON_LABEL_RE, CAPTION_EDITOR, CAPTION_EDITOR_LOOSE, CAPTION_EDITOR_LEXICAL, SYSTEM_GROUP_URL, ADD_GROUPS_BUTTON_KW, GROUP_PICKER_TITLE_KW, GROUP_PICKER_SEARCH_KW, GROUP_PICKER_DONE_KW } = content.selectors;
 
   /* ---------- PENUNGGU (WAIT) ---------- */
 
@@ -216,19 +216,50 @@
     return null;
   }
 
+  /** TEMUAN LAPANGAN: tombol/toggle "Posting sebagai anonim" di header
+      composer juga cocok dengan POST_BUTTON_SELECTORS (aria-label*="Posting")
+      dan lolos filter lama -> ekstensi pernah mengklik toggle anonim
+      alih-alih tombol submit. Strategi baru:
+      1) Scope utama = dialog composer (findComposerDialog), document hanya
+         fallback dengan skor lebih rendah;
+      2) TOLAK kandidat yang labelnya mengandung kata POISON (anonim dll.);
+      3) TOLAK label > 40 karakter (label gabungan, bukan tombol submit);
+      4) TOLAK aria-disabled="true";
+      5) Skor: aria-label eksak & pendek menang atas teks gabungan. */
+  function scorePostButton(n) {
+    const label = (n.getAttribute && n.getAttribute("aria-label")) || "";
+    const t = (label || (n.textContent || "").trim()).trim();
+    const tn = t.replace(/\s+/g, " ").toLowerCase();
+    if (!tn || tn.length > 40) return 0; /* label gabungan panjang = bukan tombol */
+    if (POST_BUTTON_POISON_RE.test(tn)) return 0; /* toggle anonim dll. */
+    if (!POST_BUTTON_LABEL_RE.test(tn)) return 0;
+    /* aria-label eksak lebih dipercaya; label pendek (<=12) paling spesifik. */
+    let s = label ? 3 : 2;
+    if (tn.length <= 12) s += 2;
+    return s;
+  }
   async function findPostButton(timeout) {
     const start = Date.now();
     while (Date.now() - start < timeout) {
-      const nodes = document.querySelectorAll(POST_BUTTON_SELECTORS.join(","));
-      for (const n of nodes) {
-        if (n.getBoundingClientRect().width < 20 || n.offsetParent === null) continue;
-        const label = (n.getAttribute && (n.getAttribute("aria-label") || "")) || "";
-        const t = label || (n.textContent || "").trim();
-        if (/(posting|kirim|post|bagikan|share)/i.test(t)) {
-          if (/(media|foto|video|story|tag|feeling|aktivitas)/i.test(t) && !/(post now|kirim posting|postingan|post aktivitas)/i.test(t)) continue;
-          return n;
+      const dialog = findComposerDialog();
+      /* Dialog composer dulu (skor +5); document hanya bila dialog tak ada. */
+      const roots = dialog && document.contains(dialog) ? [dialog, document] : [document];
+      let best = null;
+      let bestScore = 0;
+      for (const scope of roots) {
+        const bonus = scope === document ? 0 : 5;
+        const nodes = scope.querySelectorAll(POST_BUTTON_SELECTORS.join(","));
+        for (const n of nodes) {
+          if (n.getBoundingClientRect().width < 20 || n.offsetParent === null) continue;
+          if ((n.getAttribute("aria-disabled") || "").toLowerCase() === "true") continue;
+          const s = scorePostButton(n);
+          if (s + bonus <= bestScore) continue;
+          best = n;
+          bestScore = s + bonus;
         }
+        if (best && bonus) break; /* sudah ada kandidat di dalam dialog */
       }
+      if (best) return best;
       await sleep(350);
     }
     return null;
