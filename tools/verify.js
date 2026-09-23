@@ -780,6 +780,15 @@ function checkPickerPortalSafe() {
   report(/function findPickerDone[\s\S]{0,600}querySelectorAll\('\[role="button"\]'\)/.test(dom), "dom.js: findPickerDone() fallback document-wide tombol Selesai/Done", "ok");
 }
 
+function checkLogDebugTools() {
+  const html = read("dashboard.html");
+  const ctl = read("src/dashboard/controls.js");
+  report(/id="btnCopyLog"/.test(html), "dashboard.html: tombol Salin Log (btnCopyLog) ada", "ok");
+  report(/\$\("btnCopyLog"\)\.addEventListener\("click"/.test(ctl), "controls.js: handler btnCopyLog terpasang", "ok");
+  report(/navigator\.clipboard\.writeText/.test(ctl), "controls.js: copy log memakai navigator.clipboard.writeText", "ok");
+  report(/\$\("btnStart"\)[\s\S]*?\$\("terminal"\)\.innerHTML = ""[\s\S]*?type: MSG\.START_POSTING/.test(ctl), "controls.js: Live Log dibersihkan saat Mulai Posting diklik (sebelum START_POSTING)", "ok");
+}
+
 /* ---------- 11. RUNNER ---------- */
 
 /* ---------- 10. WIRING WORKFLOW SCAN (pola fb-grupV3) ----------
@@ -869,6 +878,15 @@ function checkManualTabPool() {
   report(/ensureManualPostTab/.test(src) && /ensureManualPostTab,/.test(tabs), "ensureManualPostTab terdaftar di API background.tabs dan dipakai scheduler", "ok");
 }
 
+function checkLogDebugTools() {
+  const html = read("dashboard.html");
+  const ctl = read("src/dashboard/controls.js");
+  report(/id="btnCopyLog"/.test(html), "dashboard.html: tombol Salin Log (btnCopyLog) ada", "ok");
+  report(/\$\("btnCopyLog"\)\.addEventListener\("click"/.test(ctl), "controls.js: handler btnCopyLog terpasang", "ok");
+  report(/navigator\.clipboard\.writeText/.test(ctl), "controls.js: copy log memakai navigator.clipboard.writeText", "ok");
+  report(/\$\("btnStart"\)[\s\S]*?\$\("terminal"\)\.innerHTML = ""[\s\S]*?type: MSG\.START_POSTING/.test(ctl), "controls.js: Live Log dibersihkan saat Mulai Posting diklik (sebelum START_POSTING)", "ok");
+}
+
 /* ---------- 11. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
@@ -885,6 +903,7 @@ function checkManualTabPool() {
   checkPickerPortalSafe();
   checkSellGroupSkip();
   checkScanWiring();
+  checkLogDebugTools();
   checkParity();
   checkLoadBackground();
   checkLoadContent();

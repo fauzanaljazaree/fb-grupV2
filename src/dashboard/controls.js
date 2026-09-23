@@ -95,6 +95,8 @@
      Alur baru: 1 materi diposting ke SEMUA grup yang dicentang di tabel
      (urutan tabel atas->bawah), baru lanjut materi berikutnya. */
   $("btnStart").addEventListener("click", async () => {
+    /* Fitur debugging: bersihkan Live Log setiap Mulai Posting diklik. */
+    $("terminal").innerHTML = "";
     if (!State.materials.length) { addLog("Tidak ada materi untuk diposting. Import Excel + media dulu.", "err"); return; }
     /* GUARD MEDIA (jangan posting teks diam-diam): materi yang MEMAKAI media
        tapi blob tidak terbaca dari folder media (badge "✗ Tidak Ada") ->
@@ -149,6 +151,37 @@
 
   $("btnClearLog").addEventListener("click", () => {
     $("terminal").innerHTML = "";
+  });
+
+  /* ---------------- SALIN SEMUA LOG (fitur debugging) ----------------
+     Kumpulkan tiap baris Live Log lalu salin ke clipboard. */
+  $("btnCopyLog").addEventListener("click", async () => {
+    const lines = [...$("terminal").querySelectorAll(".line")]
+      .map((el) => {
+        const parts = [...el.children].map((c) => c.textContent);
+        return (parts.length ? parts.join(" ") : el.textContent).trim();
+      })
+      .filter(Boolean);
+    if (!lines.length) { addLog("Tidak ada log untuk disalin.", "warn"); return; }
+    const text = lines.join("\n");
+    let ok = false;
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+        ok = true;
+      }
+    } catch (e) { /* fallback di bawah */ }
+    if (!ok) {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      try { ok = document.execCommand("copy"); } catch (e) { ok = false; }
+      ta.remove();
+    }
+    addLog(ok ? `Berhasil menyalin ${lines.length} baris log ke clipboard.` : "Gagal menyalin log ke clipboard.", ok ? "ok" : "err");
   });
 
   /* ------- Opsi C: kontrol tampilan tab FB ------- */
