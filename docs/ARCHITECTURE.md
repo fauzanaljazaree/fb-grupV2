@@ -86,7 +86,7 @@ tidak ada tipe pesan lama yang hilang.
 | `postTabManualIds`           | array ID tab mode manual (FIFO, maks `LIMITS.MAX_MANUAL_TABS` = 3) — tab manual TERTUA ditutup saat pool penuh; ID basi dibersihkan otomatis | background (tabs: ensureManualPostTab/restoreManualTabs)  |
 | `stats`                     | `{"YYYY-MM-DD": jumlah}` untuk batas harian                                                                                                  | background (scheduler)                                    |
 | `status`                    | `{running}` — dipulihkan/dibersihkan oleh `scheduler.getStatus()`, karena kunci ini bisa tertinggal bila sesi berakhir tanpa `stopPosting()` | background (messaging.setRunning, scheduler.getStatus)    |
-| `postingLogs`               | maksimal 500 baris log terakhir                                                                                                              | background (messaging.log)                                |
+| `postingLogs`               | maksimal 500 baris log terakhir; `[]` = Live Log bersih (lihat §8)                                                                                                              | background (messaging.log), dashboard (controls.clearLog)                                |
 | `ui`                        | `{showFbTab}`                                                                                                                                | dashboard & background                                    |
 | `groups` / `selectedGroups` | data grup (fitur scraping nonaktif)                                                                                                          | dashboard (groups)                                        |
 | `sellGroups`                | `{groupUrl: {at, name}}` — label permanen "grup jual-beli" (hanya tombol "Jual sesuatu", tanpa kolom posting); dilewati di `startPosting`, di-uncheck otomatis; dihapus hanya via tombol "Hapus label jual-beli" | background (handleSkipSellGroup), dashboard (applySellGroupMarked, btnClearSell, btnDeleteGroups) |
@@ -540,6 +540,21 @@ lalu document) → `typeCaption()`.
   Timeout picker: `ADD_GROUPS_TIMEOUT_MS` / `GROUP_SEARCH_TIMEOUT_MS`; tutup
   picker = tombol "Selesai" dengan fallback panah mundur lalu tombol Escape; setiap percobaan tutup WAJIB re-query picker fresh (findGroupPicker()) karena referensi picker bisa stale (search/centang me-re-render dialog FB).
 
+- **Live Log dashboard = proyeksi `postingLogs` di storage, bukan state DOM.**
+  Temuan lapangan (bug "Bersihkan Log / auto-clear saat Mulai Posting tampak
+  tidak berefek"): tombol **Bersihkan Log** dan clear di **Mulai Posting**
+  dahulu hanya menulis `$("terminal").innerHTML = ""`, sementara
+  `chrome.storage.onChanged` di `dashboard/controls.js` me-render ulang SELURUH
+  isi `postingLogs` begitu background `messaging.log()` menulis log baru (saat
+  idle, `!State.running`) — log lama pun muncul kembali. Aturan: setiap
+  permintaan bersihkan Live Log WAJIB lewat satu pintu `controls.clearLog()`
+  yang mengosongkan DOM **dan** `STORAGE.POSTING_LOGS` dalam satu operasi;
+  listener `onChanged` mengabaikan `newValue` kosong (`if (logs.length &&
+  !State.running)`) supaya baris yang baru ditulis setelah clear (misalnya pesan
+  validasi saat Mulai Posting ditolak) tidak ikut terhapus. Konsekuensinya
+  kunci `postingLogs` kini ditulis dua konteks: background (`messaging.log`)
+  dan dashboard (`clearLog`) — kontrak kolomnya di §4.
+
 ## 9. Verifikasi Otomatis
 
 `node tools/verify.js` menjalankan pemeriksaan: sintaks, kode mati,
@@ -554,7 +569,7 @@ sehingga picker "Tambahkan grup" tidak pernah dibuka), paritas nama fungsi & lit
 `document`) untuk ketiga konteks, pemulihan status basi (`GET_STATUS`
 mereset sesi yang sudah mati sehingga tombol **Mulai Posting** tetap bisa diklik),
 serta uji rantai navigasi `home → grup → composer` di atas DOM Facebook tiruan
-(urutan klik natural, grup pertama sidebar, dan editor composer terdeteksi).
+(urutan klik natural, grup pertama sidebar, dan editor composer terdeteksi). `checkLogDebugTools()` mengunci kontrak Live Log: tombol Salin Log memakai clipboard API, seluruh jalur clear (tombol **Bersihkan Log** + auto-clear **Mulai Posting**) wajib lewat `clearLog()` yang mengosongkan `#terminal` **dan** `postingLogs`, sementara listener `onChanged` melewati `newValue` kosong.
 
 ## 10. 🛡️ FACEBOOK DOM AUTOMATION & ROBUSTNESS GUIDELINES
 

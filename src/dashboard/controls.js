@@ -23,6 +23,22 @@
     }));
   }
 
+  /* ---------------- BERSIHKAN LIVE LOG (DOM + storage) ----------------
+     Mengosongkan #terminal saja TIDAK cukup: listener storage.onChanged di
+     bawah me-render ulang seluruh isi `postingLogs` dari storage setiap ada
+     perubahan, sehingga log lama muncul kembali begitu background menulis log
+     baru — inilah sebab tombol "Bersihkan Log" dan auto-clear saat "Mulai
+     Posting" tampak tidak berefek. Jadi kunci storage-nya ikut dikosongkan
+     dalam satu operasi. */
+  async function clearLog() {
+    $("terminal").innerHTML = "";
+    try {
+      await setStrict({ [STORAGE.POSTING_LOGS]: [] });
+    } catch (e) {
+      addLog(`Gagal mengosongkan log tersimpan di storage: ${e.message}`, "warn");
+    }
+  }
+
   /* ---------------- SINKRONISASI STATUS AWAL ----------------
      Background adalah sumber kebenaran tombol Start/Stop. Kunci `status` di
      storage bisa tertinggal (sesi lama berakhir tanpa stopPosting()), sehingga
@@ -95,8 +111,10 @@
      Alur baru: 1 materi diposting ke SEMUA grup yang dicentang di tabel
      (urutan tabel atas->bawah), baru lanjut materi berikutnya. */
   $("btnStart").addEventListener("click", async () => {
-    /* Fitur debugging: bersihkan Live Log setiap Mulai Posting diklik. */
-    $("terminal").innerHTML = "";
+    /* Fitur debugging: setiap klik "Mulai Posting" = sesi log baru, jadi Live
+       Log lama dibersihkan dulu (DOM + storage) supaya log sesi ini tidak
+       tercampur sisa log sesi sebelumnya. */
+    await clearLog();
     if (!State.materials.length) { addLog("Tidak ada materi untuk diposting. Import Excel + media dulu.", "err"); return; }
     /* GUARD MEDIA (jangan posting teks diam-diam): materi yang MEMAKAI media
        tapi blob tidak terbaca dari folder media (badge "✗ Tidak Ada") ->
@@ -149,8 +167,10 @@
     addLog("Posting dihentikan oleh user.", "warn");
   });
 
-  $("btnClearLog").addEventListener("click", () => {
-    $("terminal").innerHTML = "";
+  /* Bersihkan Log: pakai clearLog() yang sama dengan auto-clear "Mulai Posting"
+     agar storage ikut dikosongkan — kalau hanya DOM, onChanged merendernya ulang. */
+  $("btnClearLog").addEventListener("click", async () => {
+    await clearLog();
   });
 
   /* ---------------- SALIN SEMUA LOG (fitur debugging) ----------------
@@ -259,8 +279,12 @@
     if (area !== "local") return;
     if (changes[STORAGE.POSTING_LOGS]) {
       const logs = changes[STORAGE.POSTING_LOGS].newValue || [];
-      // hanya tampilkan log terbaru bila idle agar tidak ganda
-      if (!State.running) {
+      /* newValue KOSONG = permintaan bersihkan (clearLog): terminal sudah
+         dikosongkan pemanggil, jadi jangan render ulang — kalau dirender,
+         baris yang baru saja ditulis (mis. pesan validasi) ikut terhapus.
+         Bila ada isinya: render ulang dari storage hanya saat idle agar
+         tidak ganda dengan aliran MSG.LOG realtime. */
+      if (logs.length && !State.running) {
         $("terminal").innerHTML = "";
         logs.forEach((l) => addLog(l.text, l.cls));
       }

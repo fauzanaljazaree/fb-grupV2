@@ -780,15 +780,6 @@ function checkPickerPortalSafe() {
   report(/function findPickerDone[\s\S]{0,600}querySelectorAll\('\[role="button"\]'\)/.test(dom), "dom.js: findPickerDone() fallback document-wide tombol Selesai/Done", "ok");
 }
 
-function checkLogDebugTools() {
-  const html = read("dashboard.html");
-  const ctl = read("src/dashboard/controls.js");
-  report(/id="btnCopyLog"/.test(html), "dashboard.html: tombol Salin Log (btnCopyLog) ada", "ok");
-  report(/\$\("btnCopyLog"\)\.addEventListener\("click"/.test(ctl), "controls.js: handler btnCopyLog terpasang", "ok");
-  report(/navigator\.clipboard\.writeText/.test(ctl), "controls.js: copy log memakai navigator.clipboard.writeText", "ok");
-  report(/\$\("btnStart"\)[\s\S]*?\$\("terminal"\)\.innerHTML = ""[\s\S]*?type: MSG\.START_POSTING/.test(ctl), "controls.js: Live Log dibersihkan saat Mulai Posting diklik (sebelum START_POSTING)", "ok");
-}
-
 /* ---------- 11. RUNNER ---------- */
 
 /* ---------- 10. WIRING WORKFLOW SCAN (pola fb-grupV3) ----------
@@ -878,13 +869,28 @@ function checkManualTabPool() {
   report(/ensureManualPostTab/.test(src) && /ensureManualPostTab,/.test(tabs), "ensureManualPostTab terdaftar di API background.tabs dan dipakai scheduler", "ok");
 }
 
+/* ---------- 10c. TOOLS DEBUG LIVE LOG (Salin Log + Bersihkan Log) ----------
+   Salin: setiap baris .line di #terminal digabung lalu disalin ke clipboard.
+   Bersihkan / auto-clear saat Mulai Posting: WAJIB mengosongkan kunci
+   storage `postingLogs` juga — listener storage.onChanged di controls.js
+   me-render ulang isi storage, sehingga mengosongkan DOM saja membuat log
+   lama muncul kembali begitu background menulis log baru (bug "clear log
+   tidak berefek"). */
 function checkLogDebugTools() {
   const html = read("dashboard.html");
-  const ctl = read("src/dashboard/controls.js");
+  const ctl = read("src/dashboard/controls.js").replace(/\r/g, "");
   report(/id="btnCopyLog"/.test(html), "dashboard.html: tombol Salin Log (btnCopyLog) ada", "ok");
   report(/\$\("btnCopyLog"\)\.addEventListener\("click"/.test(ctl), "controls.js: handler btnCopyLog terpasang", "ok");
   report(/navigator\.clipboard\.writeText/.test(ctl), "controls.js: copy log memakai navigator.clipboard.writeText", "ok");
-  report(/\$\("btnStart"\)[\s\S]*?\$\("terminal"\)\.innerHTML = ""[\s\S]*?type: MSG\.START_POSTING/.test(ctl), "controls.js: Live Log dibersihkan saat Mulai Posting diklik (sebelum START_POSTING)", "ok");
+  report(/async function clearLog\(\)[\s\S]{0,300}?\$\("terminal"\)\.innerHTML = ""[\s\S]{0,300}?setStrict\(\{ \[STORAGE\.POSTING_LOGS\]: \[\] \}\)/.test(ctl), "controls.js: clearLog() mengosongkan #terminal DAN storage POSTING_LOGS (clear benar-benar berefek)", "ok");
+  report(/\$\("btnStart"\)[\s\S]*?await clearLog\(\);[\s\S]*?type: MSG\.START_POSTING/.test(ctl), "controls.js: Live Log dibersihkan tiap Mulai Posting diklik (sebelum START_POSTING)", "ok");
+  report(/\$\("btnClearLog"\)[\s\S]{0,200}?await clearLog\(\);/.test(ctl), "controls.js: tombol Bersihkan Log memakai clearLog() (storage ikut dikosongkan)", "ok");
+  report(/if \(logs\.length && !State\.running\)/.test(ctl), "controls.js: onChanged POSTING_LOGS melewati newValue kosong (baris baru tidak ikut terhapus)", "ok");
+
+  /* Kontrak dokumen: temuan bug clear dipromosikan ke §4 (kolom ditulis oleh)
+     dan §8 (Keputusan Desain) sesuai aturan repo — dokumen hidup. */
+  const arch = read("docs/ARCHITECTURE.md");
+  report(/Live Log dashboard = proyeksi `postingLogs` di storage/.test(arch) && /background \(messaging\.log\), dashboard \(controls\.clearLog\)/.test(arch), "ARCHITECTURE.md: kontrak Live Log (proyeksi postingLogs + clear satu pintu) dicatat di §4 dan §8", "ok");
 }
 
 /* ---------- 11. RUNNER ---------- */
