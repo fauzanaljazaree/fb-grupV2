@@ -107,14 +107,24 @@
     }
     const selectedCount = selectedCountAll;
     tb.innerHTML = filtered.map((g, i) => `
-      <tr>
-        <td>${i + 1}</td>
-        <td><input type="checkbox" data-url="${escapeHtml(g.url)}" ${State.selected.has(g.url) ? "checked" : ""} /></td>
-        <td>${escapeHtml(g.name)}${sellGroups[g.url] ? ' <span title="Grup jual-beli: hanya ada tombol \'Jual sesuatu\' (tanpa kolom posting) — dilewati otomatis. Hapus label via tombol \'Hapus label jual-beli\' bila ingin mencoba lagi." style="color:var(--amber)">🏷️ Jual-beli</span>' : ""}</td>
+      <tr data-url="${escapeHtml(g.url)}">
+        <td class="grp-toggle" title="Klik untuk centang/hapus centang">${i + 1}</td>
+        <td class="grp-toggle" title="Klik untuk centang/hapus centang"><input type="checkbox" data-url="${escapeHtml(g.url)}" ${State.selected.has(g.url) ? "checked" : ""} /></td>
+        <td class="grp-toggle" title="Klik untuk centang/hapus centang">${escapeHtml(g.name)}${sellGroups[g.url] ? ' <span title="Grup jual-beli: hanya ada tombol \'Jual sesuatu\' (tanpa kolom posting) — dilewati otomatis. Hapus label via tombol \'Hapus label jual-beli\' bila ingin mencoba lagi." style="color:var(--amber)">🏷️ Jual-beli</span>' : ""}</td>
         <td><a href="${escapeHtml(g.url)}" target="_blank" style="color:var(--accent)">${escapeHtml(g.url)}</a></td>
         <td style="white-space:nowrap; max-width:260px; overflow:hidden; text-overflow:ellipsis">${statusCell(g.url)}</td>
       </tr>`).join("");
     $("chkSelectAll").checked = State.groups.length > 0 && selectedCount === State.groups.length;
+  }
+
+  /** Balik centang satu grup (sumber tunggal untuk klik baris & checkbox).
+      Dipakai handler change + click agar tidak ada duplikasi logika tulis storage. */
+  async function toggleSelect(url) {
+    if (!url) return;
+    if (State.selected.has(url)) State.selected.delete(url);
+    else State.selected.add(url);
+    await setStrict({ [STORAGE.SELECTED_GROUPS]: Array.from(State.selected) });
+    renderGroups();
   }
 
   $("groupTbody").addEventListener("change", async (e) => {
@@ -125,6 +135,19 @@
       await setStrict({ [STORAGE.SELECTED_GROUPS]: Array.from(State.selected) });
       renderGroups();
     }
+  });
+
+  /* Klik sel No / Pilih / Nama ikut mencentang (area klik lebih besar).
+     Kolom Link & Status dikecualikan: klik link tetap membuka tab FB,
+     checkbox langsung tetap ditangani handler change (anti double-toggle). */
+  $("groupTbody").addEventListener("click", async (e) => {
+    if (e.target.matches('input[type="checkbox"]')) return;
+    if (e.target.closest("a")) return;
+    const cell = e.target.closest("td.grp-toggle");
+    if (!cell) return;
+    const row = cell.closest("tr[data-url]");
+    if (!row) return;
+    await toggleSelect(row.getAttribute("data-url"));
   });
 
   $("chkSelectAll").addEventListener("change", async (e) => {
