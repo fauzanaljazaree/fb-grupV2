@@ -98,12 +98,14 @@
     const tb = $("groupTbody");
     const filtered = State.groups.filter(matchesFilter);
     $("groupCount").textContent = `${filtered.length} grup ditampilkan`;
+    const selectedCountAll = State.groups.filter((g) => State.selected.has(g.url)).length;
+    $("selectedGroupCount").textContent = `${selectedCountAll} tercentang`;
     if (!filtered.length) {
       tb.innerHTML = `<tr><td colspan="5"><div class="empty">${State.groups.length ? "Tidak ada yang cocok dengan pencarian." : 'Belum ada data grup. Klik "Ambil Data Grup FB".'}</div></td></tr>`;
       $("chkSelectAll").checked = false;
       return;
     }
-    const selectedCount = State.groups.filter((g) => State.selected.has(g.url)).length;
+    const selectedCount = selectedCountAll;
     tb.innerHTML = filtered.map((g, i) => `
       <tr>
         <td>${i + 1}</td>

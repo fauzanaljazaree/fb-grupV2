@@ -161,6 +161,10 @@
 
   async function stopPosting(reason) {
     chrome.alarms.clear(ALARM_NAME);
+    run.nextAt = 0;
+    try {
+      await storageSet({ [STORAGE.NEXT_POST_AT]: 0 });
+    } catch (e) { /* abaikan: countdown cukup berhenti via STATE */ }
     await setRunning(false);
     keepAwakeOff();
     if (reason) await log(reason, "warn");
@@ -168,6 +172,7 @@
        TIDAK ditutup — dipakai ulang sesi berikutnya via restorePostTab +
        guard sameGroupUrl di ensurePostTab (anti tab numpuk antar sesi). */
     await forgetPostTab();
+    await broadcastQueueInfo();
   }
 
   /* ---------------- STATUS SEBENARNYA (PEMULIHAN STATUS BASI) ----------------
@@ -189,15 +194,23 @@
 
   /** Status sebenarnya: pulihkan sesi yang masih terjadwal, buang yang basi. */
   async function getStatus() {
-    if (run.running || run.busy) return { ok: true, running: true };
+    let nextAt = run.nextAt || 0;
+    try {
+      const savedNext = (await storageGet([STORAGE.NEXT_POST_AT]))[STORAGE.NEXT_POST_AT];
+      if (typeof savedNext === "number" && savedNext > 0) {
+        nextAt = savedNext;
+        if (!run.nextAt) run.nextAt = savedNext;
+      }
+    } catch (e) { /* abaikan: countdown default 0 */ }
+    if (run.running || run.busy) return { ok: true, running: true, nextAt };
     const stored = (await storageGet([STORAGE.STATUS]))[STORAGE.STATUS];
-    if (!(stored && stored.running)) return { ok: true, running: false };
+    if (!(stored && stored.running)) return { ok: true, running: false, nextAt: 0 };
 
     /* Sesi lama masih hidup: alarm langkah berikutnya masih terjadwal. */
     if (await alarmExists()) {
       run.running = true;
       keepAwakeOn();
-      return { ok: true, running: true };
+      return { ok: true, running: true, nextAt };
     }
 
     /* Sesi basi: tanpa alarm & tanpa proses -> bersihkan supaya tidak terkunci. */
@@ -205,10 +218,11 @@
     run.cursor = 0;
     run.groupUrl = null;
     run.groupName = null;
-    await storageSet({ [STORAGE.QUEUE]: [], [STORAGE.CURSOR]: 0 });
+    run.nextAt = 0;
+    await storageSet({ [STORAGE.QUEUE]: [], [STORAGE.CURSOR]: 0, [STORAGE.NEXT_POST_AT]: 0 });
     await setRunning(false);
     await log('Status "Berjalan" warisan sesi lama dibersihkan (tidak ada alarm aktif) — siap memulai posting baru.', "warn");
-    return { ok: true, running: false, recovered: true };
+    return { ok: true, running: false, recovered: true, nextAt: 0 };
   }
 
   /** Jadwalkan langkah berikutnya (di-clamp agar alarm tetap wajar). */
@@ -217,6 +231,16 @@
     const now = Date.now();
     const when = Math.max(now + Math.min(delayMs, LIMITS.MAX_ALARM_DELAY_MS), now + LIMITS.MIN_ALARM_DELAY_MS);
     chrome.alarms.create(ALARM_NAME, { when });
+    /* Countdown dashboard: persist epoch posting berikutnya (tahan restart
+       SW & reload dashboard) lalu siarkan via QUEUE_INFO. Fire-and-forget
+       agar timing alarm tidak berubah (fungsi tetap sinkron). */
+    run.nextAt = when;
+    try {
+      storageSet({ [STORAGE.NEXT_POST_AT]: when }).catch(() => {});
+    } catch (e) { /* abaikan */ }
+    try {
+      broadcastQueueInfo().catch(() => {});
+    } catch (e) { /* abaikan */ }
     const sec = Math.round((when - now) / 1000);
     log(`Jeda acak: aksi berikutnya dalam \u00b1${sec}s.`, "info");
   }
@@ -297,7 +321,13 @@
     let failedBatch = false;
     run.busy = true;
     try {
-      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX, STORAGE.POST_TAB_ID]);
+      const st = await storageGet([STORAGE.QUEUE, STORAGE.CURSOR, STORAGE.SETTINGS, STORAGE.MATERIALS, STORAGE.STATS, STORAGE.GROUPS_SNAPSHOT, STORAGE.GROUP_RESULTS, STORAGE.POST_MATRIX, STORAGE.POST_TAB_ID, STORAGE.NEXT_POST_AT]);
+      /* Countdown: posting sedang dieksekusi -> jadwal lama basi. Nol-kan
+         dulu (persist + siarkan) agar dashboard tidak menghitung mundur ke
+         waktu yang sudah lewat; scheduleNext di akhir langkah menulis lagi. */
+      run.nextAt = 0;
+      storageSet({ [STORAGE.NEXT_POST_AT]: 0 }).catch(() => {});
+      broadcastQueueInfo().catch(() => {});
       /* Worker MV3 bisa bangun dengan memori kosong: pulihkan ID tab posting
          dari storage agar tab FB lama DIPAKAI ULANG (bukan buka tab baru
          tiap batch — anti tab numpuk). Bila ID basi, ensurePostTab yang

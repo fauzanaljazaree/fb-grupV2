@@ -34,10 +34,10 @@
     chrome.runtime.sendMessage({ type: MSG.STATE, running: v }).catch(() => {});
   }
 
-  /** Kirim sisa antrean ke dashboard. */
+  /** Kirim sisa antrean + jadwal posting berikutnya ke dashboard. */
   async function broadcastQueueInfo() {
     const remaining = Math.max(0, run.queue.length - run.cursor);
-    chrome.runtime.sendMessage({ type: MSG.QUEUE_INFO, remaining }).catch(() => {});
+    chrome.runtime.sendMessage({ type: MSG.QUEUE_INFO, remaining, nextAt: run.nextAt || 0 }).catch(() => {});
   }
 
   background.messaging = { log, setRunning, broadcastQueueInfo };

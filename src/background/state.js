@@ -43,7 +43,11 @@
        startPosting()/SET_VIEW. */
     showFbTab: true,
     postsSinceCooldown: 0,
-    cooldownUntil: 0
+    cooldownUntil: 0,
+    /* Epoch ms (Date.now) posting berikutnya — ditulis scheduleNext,
+       dibaca dashboard untuk countdown "X mnt Y dtk". 0 = tak terjadwal.
+       Dipersist ke STORAGE.NEXT_POST_AT agar tahan restart SW. */
+    nextAt: 0
   };
 
   /** Pulihkan state dari storage (dipanggil pada onInstalled). */

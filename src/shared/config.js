@@ -61,6 +61,10 @@
     SCAN_STATUS: "scanStatus",
     LAST_SCAN: "lastScan",
     ACCOUNT_NAME: "accountName",
+    /* Epoch ms (Date.now) posting berikutnya (ditulis scheduleNext,
+       dihapus stopPosting/selesai). Dibaca dashboard untuk countdown
+       "X mnt Y dtk" — persist agar tahan restart SW & reload dashboard. */
+    NEXT_POST_AT: "nextPostAt",
     /* Label permanen "grup jual-beli": {groupUrl: {at, name}}. Diisi
        background saat content script mendeteksi grup hanya menyediakan
        tombol "Jual sesuatu" (tanpa kolom posting) — grup berlabel

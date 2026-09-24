@@ -10,10 +10,60 @@
   const dashboard = (FBAP.dashboard = FBAP.dashboard || {});
   const { MSG, STORAGE } = FBAP.config;
   const { setStrict } = FBAP.storage;
+  const { get: storageGet } = FBAP.storage;
   const { State } = dashboard.state;
   const { $, addLog, setStatus, showSaving, showSaved, showSaveError } = dashboard.ui;
   const { renderMaterials } = dashboard.materials;
   const { loadGroups } = dashboard.groups;
+
+  /* ---------------- COUNTDOWN JEDA ANTAR POSTINGAN ----------------
+     Sumber kebenaran: epoch ms STORAGE.NEXT_POST_AT (ditulis scheduleNext
+     background, persist agar tahan restart SW & reload dashboard).
+     Dashboard HANYA menghitung mundur via setInterval 1 detik — tidak ada
+     alarm/tick tambahan dari background. Format: "3 mnt 12 dtk". */
+  let nextAtMs = 0;
+  let countdownTimer = null;
+
+  /** Format sisa ms -> "X mnt Y dtk" / "Y dtk" / "segera…". */
+  function formatCountdown(ms) {
+    const s = Math.max(0, Math.ceil(ms / 1000));
+    if (s <= 0) return "segera…";
+    const mnt = Math.floor(s / 60);
+    const dtk = s % 60;
+    if (mnt <= 0) return `${dtk} dtk`;
+    return `${mnt} mnt ${dtk} dtk`;
+  }
+
+  /** Render satu tick countdown ke #nextPostInfo. */
+  function renderCountdown() {
+    let el = null;
+    try { el = $("nextPostInfo"); } catch (e) { el = null; }
+    if (!el) return;
+    if (!State.running || !nextAtMs || nextAtMs <= Date.now()) {
+      el.textContent = State.running ? "⏳ Postingan berikutnya: segera…" : "⏳ Postingan berikutnya: -";
+      return;
+    }
+    el.textContent = `⏳ ${formatCountdown(nextAtMs - Date.now())} lagi`;
+  }
+
+  /** Set jadwal baru + pastikan interval 1 detik berjalan. */
+  function setNextAt(v) {
+    nextAtMs = typeof v === "number" && v > 0 ? v : 0;
+    renderCountdown();
+    if (!countdownTimer) {
+      countdownTimer = setInterval(renderCountdown, 1000);
+    }
+  }
+
+  /** Hentikan countdown (stop/selesai): tampilkan "-" tapi biarkan
+      interval hidup agar sesi berikutnya langsung tampil tanpa re-init. */
+  function clearNextAt() {
+    nextAtMs = 0;
+    renderCountdown();
+  }
+
+  // Render awal agar chip tidak kosong sebelum pesan pertama tiba.
+  try { renderCountdown(); } catch (e) { /* DOM belum siap */ }
 
   /** Kirim pesan ke background; selalu resolve (error jadi {ok:false}). */
   function sendMsg(msg) {
@@ -50,6 +100,19 @@
       addLog("Status \"Berjalan\" warisan sesi lama dibersihkan — siap memulai posting baru.", "warn");
     }
     setStatus(!!res.running);
+    /* Countdown: pulihkan jadwal agar reload dashboard di tengah sesi
+       langsung menampilkan sisa jeda (fallback baca storage bila
+       background tak menyertakan nextAt). */
+    if (res.running && typeof res.nextAt === "number" && res.nextAt > 0) {
+      setNextAt(res.nextAt);
+    } else if (res.running) {
+      try {
+        const data = await storageGet([STORAGE.NEXT_POST_AT]);
+        setNextAt(data && data[STORAGE.NEXT_POST_AT]);
+      } catch (e) { /* abaikan */ }
+    } else {
+      clearNextAt();
+    }
     return !!res.running;
   }
 
@@ -264,8 +327,11 @@
       addLog(msg.text, msg.cls || "mut");
     } else if (msg.type === MSG.STATE) {
       setStatus(!!msg.running);
+      if (!msg.running) clearNextAt();
+      else renderCountdown();
     } else if (msg.type === MSG.QUEUE_INFO) {
       $("queueInfo").textContent = `Antrean Tersisa: ${msg.remaining}`;
+      setNextAt(msg.nextAt);
     } else if (msg.type === MSG.GROUP_RESULT) {
       try { dashboard.groups.applyResult(msg); } catch (e) { /* abaikan */ }
     } else if (msg.type === MSG.SELL_GROUP_MARKED) {
@@ -312,7 +378,12 @@
       State.materials = changes[STORAGE.MATERIALS].newValue || [];
       renderMaterials();
     }
+    /* Countdown lintas tab dashboard: scheduleNext/stopPosting menulis
+       STORAGE.NEXT_POST_AT -> semua dashboard terbuka ikut update. */
+    if (changes[STORAGE.NEXT_POST_AT]) {
+      setNextAt(changes[STORAGE.NEXT_POST_AT].newValue);
+    }
   });
 
-  dashboard.controls = { sendMsg, syncStatus };
+  dashboard.controls = { sendMsg, syncStatus, formatCountdown, setNextAt, clearNextAt };
 })(globalThis);

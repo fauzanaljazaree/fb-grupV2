@@ -674,6 +674,7 @@
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px"> <input type="checkbox" id="chkSelectAll" /> Pilih Semua </label>
           <input type="search" id="searchGroup" class="grow" placeholder="Cari nama grup / URL..." />
           <span class="count-chip" id="groupCount">0 grup</span>
+          <span class="count-chip" id="selectedGroupCount" title="Jumlah grup yang dicentang">0 tercentang</span>
         </div>
         <p id="scanMessage" role="status" style="font-size: 12.5px; color: var(--muted); min-height: 16px; margin: -6px 0 0"></p>
         <div class="tbl-wrap">
@@ -709,6 +710,7 @@
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer" title="Dicentang: 1 submit menjangkau s.d. 10 grup via picker 'Tambahkan grup'. Tidak dicentang: 1 grup 1 submit tanpa picker."> <input type="checkbox" id="chkBatchPost" checked /> Posting Batch </label>
           <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; cursor: pointer"> <input type="checkbox" id="chkShowFb" checked /> Tampilkan tab FB saat posting </label>
           <span class="count-chip" id="queueInfo">Antrean: -</span>
+          <span class="count-chip" id="nextPostInfo" title="Waktu jeda menuju postingan berikutnya">⏳ Postingan berikutnya: -</span>
         </div>
         <div class="terminal" id="terminal"></div>
       </section>
