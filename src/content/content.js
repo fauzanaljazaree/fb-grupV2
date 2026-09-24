@@ -16,6 +16,7 @@
   const { scrapeGroups, scanGroups } = content.scraper;
   const { navHomeToGroup } = content.navigation;
   const { postToGroup, openComposer } = content.posting;
+  const { getAccountName } = content.account;
 
   /* Lindungi dari injeksi ganda (manifest + fallback executeScript)
      supaya router tidak terpasang dua kali dan sendResponse tidak
@@ -65,6 +66,12 @@
             rowsSeen: (r && r.rowsSeen) || 0,
             error: r && r.ok ? null : "Posting gagal",
           });
+        } else if (msg.type === MSG.GET_ACCOUNT_NAME) {
+          /* Deteksi akun: dipanggil background di TAB DETEKSI SEMENTARA
+             (halaman facebook.com). Murni baca DOM + polling internal
+             (LIMITS.ACCOUNT_DETECT_*), name null = belum login / belum siap. */
+          const name = await getAccountName();
+          sendResponse({ ok: true, name: name || null });
         } else if (msg.type === MSG.PING) {
           sendResponse({ ok: true, pong: true });
         } else {

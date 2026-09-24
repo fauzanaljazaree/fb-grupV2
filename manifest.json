@@ -37,6 +37,7 @@
         "src/content/navigation.js",
         "src/content/scraper.js",
         "src/content/posting.js",
+        "src/content/account.js",
         "src/content/content.js"
       ],
       "run_at": "document_idle"

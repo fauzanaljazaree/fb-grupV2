@@ -20,6 +20,7 @@
   const { fillSettingsForm } = dashboard.settings;
   const { renderGroups } = dashboard.groups;
   const { syncStatus } = dashboard.controls;
+  const { detectOnStartup } = dashboard.account;
 
   /* Catch dini: kalau ada error saat evaluasi script, tampilkan di Console
      dengan meta info — agar tidak "membisu" saat eksekusi gagal sebelum
@@ -75,6 +76,10 @@
     /* Materi tersimpan = hasil filter sesi terakhir. Re-filter dengan nama
        akun yang sekarang agar tabel langsung sesuai akun browser ini. */
     dashboard.materials.applyAccountFilter(false);
+    /* Deteksi akun FB yang sedang login (background memakai tab deteksi
+       sementara yang langsung ditutup). Fire-and-forget: tidak menahan
+       render tabel maupun sinkronisasi status tombol Start/Stop. */
+    detectOnStartup().catch(() => {});
     /* Status tombol Start/Stop diambil dari background (memori + alarm), bukan
        dari kunci `status` di storage yang bisa tertinggal dari sesi lama. */
     const running = await syncStatus();

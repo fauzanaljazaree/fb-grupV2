@@ -155,6 +155,39 @@
       .account-pill input:focus {
         border-bottom: 1px solid var(--accent);
       }
+      /* Tombol deteksi ulang akun (↻) di kanan textbox nama akun */
+      .account-pill .icon-btn {
+        width: 22px;
+        height: 22px;
+        display: grid;
+        place-items: center;
+        border-radius: 50%;
+        border: 1px solid var(--border);
+        background: transparent;
+        color: var(--text);
+        font-size: 13px;
+        font-weight: 700;
+        line-height: 1;
+        cursor: pointer;
+        flex: none;
+        transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
+      }
+      .account-pill .icon-btn:hover {
+        background: var(--accent);
+        border-color: var(--accent);
+        transform: rotate(45deg);
+      }
+      .account-pill .icon-btn:active {
+        background: var(--accent-hover);
+        border-color: var(--accent-hover);
+      }
+      .account-pill .icon-btn:disabled {
+        opacity: 0.55;
+        cursor: progress;
+      }
+      .account-pill .icon-btn.spin {
+        animation: tick-spin 0.9s linear infinite;
+      }
       .account-pill .saved-tick {
         width: 16px;
         height: 16px;
@@ -540,8 +573,9 @@
         </div>
       </div>
       <div class="header-actions">
-        <div class="account-pill" title="Nama akun FB ini akan tersimpan di chrome storage">
-          <input id="accountNameInput" type="text" placeholder="Ketik nama akun FB…" maxlength="100" autocomplete="off" spellcheck="false" />
+        <div class="account-pill" title="Nama akun FB dideteksi otomatis dari browser ini setiap dashboard dibuka (nama tetap bisa diketik manual sebagai cadangan)">
+          <input id="accountNameInput" type="text" placeholder="Deteksi akun FB… (bisa ketik manual)" maxlength="100" autocomplete="off" spellcheck="false" />
+          <button type="button" class="icon-btn" id="btnRefreshAccount" title="Deteksi ulang akun FB — tab deteksi dibuka lalu ditutup otomatis">↻</button>
           <span class="saved-tick" id="accountSavedTick" title="Tersimpan di chrome storage">✓</span>
         </div>
         <div class="status-pill" id="statusPill">
@@ -697,6 +731,7 @@
     <script src="src/dashboard/settings.js"></script>
     <script src="src/dashboard/groups.js"></script>
     <script src="src/dashboard/controls.js"></script>
+    <script src="src/dashboard/account.js"></script>
 
     <!-- Entry point dashboard (paling akhir) -->
 

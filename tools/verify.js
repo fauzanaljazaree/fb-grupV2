@@ -13,6 +13,8 @@
    8. Pemulihan status basi: tombol "Mulai Posting" tidak boleh terkunci
       oleh kunci `status` yang tertinggal dari sesi lama.
    9. Rantai navigasi home -> grup -> composer (DOM Facebook tiruan).
+   10. Deteksi akun FB: wiring MSG.GET_ACCOUNT_NAME, tab deteksi sementara,
+       dan perilaku content/account.js di DOM Facebook tiruan.
    ========================================================= */
 
 "use strict";
@@ -305,9 +307,11 @@ function loadScripts(sandbox, files, baseDir) {
 function checkLoadBackground() {
   const ctx = loadScripts(makeSandbox(makeChromeStub({})), ["src/background/service-worker.js"], "src/background");
   const bg = ctx.FBAP && ctx.FBAP.background;
-  const need = ["mediaStore", "state", "power", "messaging", "tabs", "scan", "scheduler"];
+  const need = ["mediaStore", "state", "power", "messaging", "tabs", "scan", "scheduler", "account"];
   const missing = need.filter((k) => !bg || !bg[k]);
   report(missing.length === 0, "Modul background terdaftar (importScripts)", missing.join(", "));
+  const accountApi = ["detectAccount"].filter((fn) => !bg || !bg.account || typeof bg.account[fn] !== "function");
+  report(accountApi.length === 0, "API background.account lengkap (detectAccount)", accountApi.join(", "));
   const mediaApi = ["putMedia", "getMedia", "clearMedia", "putAllMedia", "hydrateMaterials"].filter((fn) => !bg || !bg.mediaStore || typeof bg.mediaStore[fn] !== "function");
   report(mediaApi.length === 0, "API background.mediaStore lengkap (putMedia, getMedia, clearMedia, putAllMedia, hydrateMaterials)", mediaApi.join(", "));
   const api = ["startPosting", "stopPosting", "processNextPost", "sendToContent", "ensurePostTab", "getStatus"];
@@ -319,9 +323,9 @@ function checkLoadBackground() {
 function checkLoadContent() {
   const ctx = loadScripts(makeSandbox(makeChromeStub({}), makeDomStub()), extractContentFiles(), "");
   const ct = ctx.FBAP && ctx.FBAP.content;
-  const missing = ["selectors", "dom", "stealth", "media", "navigation", "scraper", "posting"].filter((k) => !ct || !ct[k]);
+  const missing = ["selectors", "dom", "stealth", "media", "navigation", "scraper", "posting", "account"].filter((k) => !ct || !ct[k]);
   report(missing.length === 0, "Modul content terdaftar", missing.join(", "));
-  const api = ["postToGroup", "navHomeToGroup", "scrapeGroups", "typeLikeHuman", "attachMedia"];
+  const api = ["postToGroup", "navHomeToGroup", "scrapeGroups", "typeLikeHuman", "attachMedia", "getAccountName"];
   const flat = api.filter((fn) => !Object.values(ct || {}).some((mod) => mod && typeof mod[fn] === "function"));
   report(flat.length === 0, "API content lengkap", flat.join(", "));
 }
@@ -378,10 +382,10 @@ function checkLoadDashboard() {
   const files = dashboardScriptFiles().filter((s) => s.startsWith("src/"));
   const ctx = loadScripts(makeSandbox(makeChromeStub({}), makeDomStub()), files, "");
   const db = ctx.FBAP && ctx.FBAP.dashboard;
-  const modules = ["state", "ui", "materials", "settings", "groups", "controls", "main"];
+  const modules = ["state", "ui", "materials", "settings", "groups", "controls", "account", "main"];
   const missing = modules.filter((k) => !db || !db[k]);
   report(missing.length === 0, "Modul dashboard terdaftar", missing.join(", "));
-  const api = ["renderMaterials", "renderGroups", "fillSettingsForm", "addLog", "setStatus", "init", "syncStatus"];
+  const api = ["renderMaterials", "renderGroups", "fillSettingsForm", "addLog", "setStatus", "init", "syncStatus", "detectOnStartup"];
   const flat = api.filter((fn) => !Object.values(db || {}).some((mod) => mod && typeof mod[fn] === "function"));
   report(flat.length === 0, "API dashboard lengkap", flat.join(", "));
 }
@@ -893,6 +897,166 @@ function checkLogDebugTools() {
   report(/Live Log dashboard = proyeksi `postingLogs` di storage/.test(arch) && /background \(messaging\.log\), dashboard \(controls\.clearLog\)/.test(arch), "ARCHITECTURE.md: kontrak Live Log (proyeksi postingLogs + clear satu pintu) dicatat di §4 dan §8", "ok");
 }
 
+/* ---------- 12. DETEKSI AKUN FB (otomatis saat dashboard dibuka + tombol ↻) ----------
+   Kontrak: dashboard minta lewat MSG.GET_ACCOUNT_NAME; background membuka TAB
+   DETEKSI SEMENTARA (active:false sehingga fokus tetap di dashboard, selalu
+   ditutup lagi di finally) dan content script membaca DOM Facebook lewat
+   content/account.js. Ketik manual di controls.js tetap jadi lapisan terakhir. */
+function makeFakeAccountDom(opts) {
+  const o = opts || {};
+  const node = (attrs, extra) =>
+    Object.assign({ tagName: "A", innerText: "", getAttribute: (n) => (n in attrs ? attrs[n] : "") }, extra || {});
+  const timeline = o.timeline ? node({ "aria-label": o.timeline.label }, { href: o.timeline.href || "" }) : null;
+  const avatarImgs = (o.avatarAlts || []).map((alt) => node({ alt }));
+  const controls = (o.controlLabels || []).map((label) => node({ "aria-label": label }));
+  const ownLinks = (o.ownLinks || []).map((l) => node({ "aria-label": l.label || "" }, { href: l.href, innerText: l.text || "" }));
+  const dom = makeDomStub();
+  dom.document.querySelector = (sel) => {
+    if (sel.indexOf('a[aria-label^="Linimasa') === 0) return timeline;
+    if (sel.indexOf('[aria-label="') === 0) return o.profileButton || null;
+    return null;
+  };
+  dom.document.querySelectorAll = (sel) => {
+    if (sel.indexOf("img[alt^=") === 0) return avatarImgs;
+    if (sel.indexOf("[role=") === 0) return controls;
+    if (sel.indexOf("a[href*=") === 0) return ownLinks;
+    return [];
+  };
+  return dom;
+}
+
+async function checkAccountDetectWiring() {
+  const cfg = read("src/shared/config.js").replace(/\r/g, "");
+  const html = read("dashboard.html").replace(/\r/g, "");
+  const sw = read("src/background/service-worker.js").replace(/\r/g, "");
+  const bacc = read("src/background/account.js").replace(/\r/g, "");
+  const router = read("src/content/content.js").replace(/\r/g, "");
+  const dacc = read("src/dashboard/account.js").replace(/\r/g, "");
+  const main = read("src/dashboard/main.js").replace(/\r/g, "");
+  const ctl = read("src/dashboard/controls.js").replace(/\r/g, "");
+
+  report(/GET_ACCOUNT_NAME: "GET_ACCOUNT_NAME"/.test(cfg), "config: MSG.GET_ACCOUNT_NAME terdaftar", "ok");
+  report(
+    /ACCOUNT_TAB_TIMEOUT_MS: 60000/.test(cfg) &&
+      /ACCOUNT_SETTLE_MS: 1200/.test(cfg) &&
+      /ACCOUNT_MSG_TIMEOUT_MS: 30000/.test(cfg) &&
+      /ACCOUNT_DETECT_TRIES: 20/.test(cfg) &&
+      /ACCOUNT_DETECT_INTERVAL_MS: 500/.test(cfg),
+    "config: LIMITS deteksi akun lengkap (tab/settle/pesan/polling)",
+    "ok",
+  );
+  const files = extractContentFiles();
+  report(
+    files.indexOf("src/content/account.js") === files.indexOf("src/content/content.js") - 1,
+    "content/account.js dimuat tepat sebelum content.js (manifest == CONTENT_SCRIPT_FILES)",
+    "ok",
+  );
+  report(
+    /"account\.js"/.test(sw) && /case MSG\.GET_ACCOUNT_NAME:/.test(sw) && /detectAccount/.test(sw),
+    "service-worker: account.js dimuat via importScripts + case GET_ACCOUNT_NAME di router",
+    "ok",
+  );
+  report(
+    /chrome\.tabs\.create\(\{ url: PAGES\.FB_HOME, active: false, pinned: false \}\)/.test(bacc) &&
+      /chrome\.tabs\.remove\(tab\.id\)/.test(bacc) &&
+      /focusDashboard\(\)/.test(bacc),
+    "background/account.js: tab deteksi dibuka active:false -> ditutup di finally -> fokus balik dashboard",
+    "ok",
+  );
+  report(
+    /let detecting = false/.test(bacc) && /if \(detecting\) return/.test(bacc),
+    "background/account.js: guard anti-dobel deteksi (tab sementara tidak pernah dobel)",
+    "ok",
+  );
+  report(
+    /run\.detectTabId = tab\.id/.test(bacc) && /run\.detectTabId = null/.test(bacc) &&
+      /t\.id !== run\.detectTabId/.test(read("src/background/tabs.js").replace(/\r/g, "")),
+    "tab deteksi dicatat di run.detectTabId + dikecualikan findExistingFbTab (tidak diadopsi jadi postTab)",
+    "ok",
+  );
+  report(
+    /msg\.type === MSG\.GET_ACCOUNT_NAME/.test(router) && /await getAccountName\(\)/.test(router) && /name: name \|\| null/.test(router),
+    "content router: GET_ACCOUNT_NAME -> content.account.getAccountName() (null = belum login)",
+    "ok",
+  );
+  report(
+    /id="btnRefreshAccount"/.test(html) && /accountNameInput[\s\S]{0,400}?btnRefreshAccount/.test(html),
+    "dashboard.html: tombol reload akun (↻) ada di KANAN textbox nama akun",
+    "ok",
+  );
+  report(
+    /<script src="src\/dashboard\/account\.js"><\/script>/.test(html) &&
+      html.indexOf("src/dashboard/account.js") < html.indexOf("src/dashboard/main.js") &&
+      html.indexOf("src/dashboard/controls.js") < html.indexOf("src/dashboard/account.js"),
+    "dashboard.html: account.js dimuat setelah controls.js dan sebelum main.js",
+    "ok",
+  );
+  report(
+    /\$\("btnRefreshAccount"\)\.addEventListener\("click"/.test(dacc) &&
+      /type: MSG\.GET_ACCOUNT_NAME/.test(dacc) &&
+      /detectOnStartup\(\)\.catch/.test(main),
+    "dashboard: deteksi otomatis saat init (main.js) + handler klik tombol ↻",
+    "ok",
+  );
+  report(
+    /if \(typed && typed !== before\)/.test(dacc) && /\$\("accountNameInput"\)\.addEventListener\("input"/.test(ctl),
+    "ketik manual tetap jadi lapisan terakhir: hasil deteksi tidak menimpa ketikan user yang datang belakangan",
+    "ok",
+  );
+
+  /* DOM Facebook tiruan: prioritas timeline > avatar > kontrol berlabel,
+     plus filter generik & panjang. Modul content dijalankan utuh
+     (config -> ... -> content.js) agar urutan pemuatan ikut teruji. */
+  const contentFiles = extractContentFiles();
+  const timelineCtx = loadScripts(
+    makeSandbox(makeChromeStub({}), makeFakeAccountDom({ timeline: { label: "Linimasa Dapur Family", href: "https://www.facebook.com/dapur.family" } })),
+    contentFiles,
+    "",
+  );
+  const account = timelineCtx.FBAP.content.account;
+  const picked = account.pickAccountName();
+  report(picked === "Dapur Family", 'pickAccountName(): "Linimasa Dapur Family" -> "Dapur Family"', String(picked));
+  const polled = await account.getAccountName();
+  report(polled === "Dapur Family", "getAccountName(): polling mengembalikan nama akun", String(polled));
+
+  const avatarCtx = loadScripts(
+    makeSandbox(makeChromeStub({}), makeFakeAccountDom({ avatarAlts: ["Foto profil dari Dapur Family"], controlLabels: ["Kontrol dan pengaturan akun"] })),
+    contentFiles,
+    "",
+  );
+  const avatarName = avatarCtx.FBAP.content.account.pickAccountName();
+  report(avatarName === "Dapur Family", "prioritas: alt avatar dipakai (dan label generik di bawahnya ditolak)", String(avatarName));
+
+  const genericCtx = loadScripts(
+    makeSandbox(makeChromeStub({}), makeFakeAccountDom({ timeline: { label: "Linimasa" }, avatarAlts: ["Profil Anda"], controlLabels: ["Menu Facebook", "Beranda"] })),
+    contentFiles,
+    "",
+  );
+  const genericName = genericCtx.FBAP.content.account.pickAccountName();
+  report(genericName === null, 'filter generik: "Linimasa"/"Profil Anda"/menu FB -> null (tidak asal isi)', String(genericName));
+
+  const longCtx = loadScripts(
+    makeSandbox(makeChromeStub({}), makeFakeAccountDom({ controlLabels: ["Kontrol dan pengaturan akun 1234567890123456789012345678901234567890"] })),
+    contentFiles,
+    "",
+  );
+  const longName = longCtx.FBAP.content.account.pickAccountName();
+  report(longName === null, "filter panjang: teks > 60 karakter ditolak (kalimat notifikasi, bukan nama akun)", String(longName));
+
+  /* Kontrak dokumen (ARCHITECTURE.md = dokumen hidup): §2 urutan modul,
+     §3 tipe pesan, §4 kunci storage, §8 keputusan desain. */
+  const arch = read("docs/ARCHITECTURE.md");
+  report(
+    /posting → account → content/.test(arch) &&
+      /`GET_ACCOUNT_NAME`/.test(arch) &&
+      /`accountName`/.test(arch) &&
+      /tab deteksi SEMENTARA/.test(arch) &&
+      /active:false/.test(arch),
+    "ARCHITECTURE.md: deteksi akun tercatat di §2 (urutan), §3 (MSG), §4 (kunci storage), §8 (tab sementara)",
+    "ok",
+  );
+}
+
 /* ---------- 11. RUNNER ---------- */
 (async () => {
   console.log("== FB Auto Poster - verifikasi struktur ==\n");
@@ -916,6 +1080,7 @@ function checkLogDebugTools() {
   checkLoadDashboard();
   await checkStatusRecovery();
   await checkHomeToComposerChain();
+  await checkAccountDetectWiring();
   checkMediaPersistence();
 
   const failed = results.filter((r) => !r.ok);

@@ -67,10 +67,20 @@
     tick.title = "Gagal menyimpan";
   }
 
+  /** Ikon amber "!" khusus DETEKSI akun gagal. Beda dari showSaveError:
+      nama akun yang sudah tersimpan TIDAK dihapus, jadi judulnya menjelaskan
+      bahwa nilai terakhir tetap dipakai. */
+  function showDetectError() {
+    const tick = $("accountSavedTick");
+    tick.className = "error-tick";
+    tick.textContent = "!";
+    tick.title = "Deteksi akun gagal — memakai nama terakhir yang tersimpan";
+  }
+
   /** Isi nilai textbox nama akun (dipakai saat init dari storage). */
   function setAccountName(value) {
     $("accountNameInput").value = value || "";
   }
 
-  dashboard.ui = { $, escapeHtml, addLog, setStatus, setAccountName, showSaving, showSaved, showSaveError };
+  dashboard.ui = { $, escapeHtml, addLog, setStatus, setAccountName, showSaving, showSaved, showSaveError, showDetectError };
 })(globalThis);

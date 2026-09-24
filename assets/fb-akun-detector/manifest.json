@@ -1,0 +1,14 @@
+{
+  "manifest_version": 3,
+  "name": "FB Account Detector",
+  "version": "1.0",
+  "description": "Deteksi nama akun Facebook yang sedang login di browser.",
+  "permissions": ["tabs", "scripting", "storage"],
+  "host_permissions": ["https://www.facebook.com/*"],
+  "action": {
+    "default_popup": "popup.html"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
+}

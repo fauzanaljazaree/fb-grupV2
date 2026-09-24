@@ -27,6 +27,7 @@ fbGrup-AutoPosting/
 │  │  ├─ power.js           #   chrome.power keep-awake
 │  │  ├─ messaging.js       #   log, setRunning, broadcastQueueInfo
 │  │  ├─ tabs.js            #   tab FB/dashboard, injeksi content script
+│  │  ├─ account.js         #   deteksi akun login (tab deteksi sementara)
 │  │  ├─ scan.js            #   orkestrator scan grup (tab sementara)
 │  │  └─ scheduler.js       #   antrean + alarm + processNextPost
 │  ├─ content/              # content script (urut, satu isolated world)
@@ -37,7 +38,8 @@ fbGrup-AutoPosting/
 │  │  ├─ media.js           #   data URL → File → input upload
 │  │  ├─ navigation.js      #   navigasi natural home → grup
 │  │  ├─ scraper.js         #   scraper daftar grup (fitur nonaktif)
-│  │  └─ posting.js         #   eksekusi posting ke grup
+│  │  ├─ posting.js         #   eksekusi posting ke grup
+│  │  └─ account.js         #   baca nama akun FB yang sedang login (DOM)
 │  └─ dashboard/            # logika UI dashboard
 │     ├─ state.js           #   state UI
 │     ├─ ui.js              #   $, escapeHtml, addLog, setStatus
@@ -45,6 +47,7 @@ fbGrup-AutoPosting/
 │     ├─ settings.js        #   pengaturan anti-bot & limit
 │     ├─ groups.js          # scan grup (START_SCAN) + tabel + pencarian
 │     ├─ controls.js        #   start/stop, tab FB, event realtime
+│     ├─ account.js         #   deteksi akun otomatis + tombol reload ↻
 │     └─ main.js            #   entry: catch error global + init()
 ├─ docs/ARCHITECTURE.md     # detail arsitektur, protokol pesan, konvensi
 ├─ tools/verify.js          # pemeriksa struktur (node tools/verify.js)
@@ -58,7 +61,12 @@ fbGrup-AutoPosting/
 
 1. Buka `chrome://extensions` → aktifkan **Developer mode**.
 2. **Load unpacked** → pilih folder proyek ini (folder yang berisi `manifest.json`).
-3. Klik ikon ekstensi untuk membuka dashboard.
+3. Klik ikon ekstensi untuk membuka dashboard. Nama akun FB yang sedang login
+   di browser ini **dideteksi otomatis** setiap dashboard dibuka: background
+   membuka satu tab deteksi di belakang layar (fokus tetap di dashboard) lalu
+   menutupnya kembali. Bila tidak terisi (mis. halaman FB belum siap), klik
+   tombol **↻** di kanan textbox nama akun untuk deteksi ulang — atau ketik
+   nama akun manual sebagai cadangan terakhir.
 4. Import materi (Excel/CSV kolom `Caption` & `Media_Name`), pilih folder media,
    lalu tekan **Mulai Posting**. Checkbox **Posting Batch** menentukan cakupan
    tiap submit: **dicentang (default)** — 1 submit menjangkau s.d. 10 grup
@@ -90,6 +98,12 @@ fbGrup-AutoPosting/
   setiap kali dibuka: bila alarm `post-tick` tidak lagi aktif, status basi
   (`status`, `queue`, `cursor`) dibersihkan otomatis dan tombol kembali aktif.
   Bila masih terkunci, tekan **Hentikan Posting**, lalu muat ulang ekstensi.
+- **Nama akun FB tidak muncul / salah.** Deteksi membaca DOM `facebook.com`,
+  jadi pastikan Anda sudah login di browser ini; butuh beberapa detik pertama
+  (halaman FB dimuat di tab deteksi). Klik tombol **↻** di kanan textbox nama
+  akun untuk deteksi ulang, atau ketik manual — nama manual yang Anda ketik
+  tidak akan ditimpa hasil deteksi. Nama akun dipakai untuk memfilter kolom
+  `Nama_Akun` di file materi (materi tanpa nama akun selalu ikut tampil).
 - **Perubahan kode tidak berpengaruh.** Setelah mengedit file, klik **Reload**
   pada kartu ekstensi di `chrome://extensions`, tutup lalu buka kembali tab
   dashboard.

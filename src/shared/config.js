@@ -86,6 +86,11 @@
     VIEW_FB_TAB: "VIEW_FB_TAB",
     BACK_TO_DASHBOARD: "BACK_TO_DASHBOARD",
     OPEN_COMPOSER: "OPEN_COMPOSER",
+    /* dashboard -> background: deteksi nama akun FB yang sedang login
+       (background membuka tab deteksi sementara lalu menutupnya kembali).
+       Tipe yang sama dipakai background -> content script untuk membaca
+       DOM Facebook (lihat src/background/account.js & src/content/account.js). */
+    GET_ACCOUNT_NAME: "GET_ACCOUNT_NAME",
     /* dashboard -> background: mulai scan daftar grup (tab sementara) */
     START_SCAN: "START_SCAN",
     /* background -> content script: jalankan scanGroups() di sidebar */
@@ -111,6 +116,19 @@
     SCAN_SETTLE_MS: 2000,                 /* jeda render React FB sebelum scan */
     SCAN_MAX_PASSES: 80,                  /* batas loop scroll sidebar */
     SCAN_MSG_TIMEOUT_MS: 120000,          /* timeout chrome.tabs.sendMessage scan */
+    /* Deteksi akun FB yang sedang login (dashboard -> background):
+       tab deteksi SEMENTARA (active:false, selalu ditutup lagi).
+       - ACCOUNT_TAB_TIMEOUT_MS : tunggu tab FB berstatus "complete"
+       - ACCOUNT_SETTLE_MS      : jeda render React FB sebelum baca DOM
+       - ACCOUNT_MSG_TIMEOUT_MS : timeout GET_ACCOUNT_NAME ke content script
+         (polling di content s.d. TRIES x INTERVAL = 10s, jadi timeout ini
+         harus lebih longgar dari itu)
+       - ACCOUNT_DETECT_TRIES/_INTERVAL_MS : polling DOM di content script */
+    ACCOUNT_TAB_TIMEOUT_MS: 60000,
+    ACCOUNT_SETTLE_MS: 1200,
+    ACCOUNT_MSG_TIMEOUT_MS: 30000,
+    ACCOUNT_DETECT_TRIES: 20,
+    ACCOUNT_DETECT_INTERVAL_MS: 500,
     /* Mode manual (checkbox "autoposting" TIDAK dicentang): jendela waktu
        bagi user untuk klik tombol Posting sendiri sebelum alur lanjut. */
     MANUAL_POST_WINDOW_MS: 10000,
@@ -152,6 +170,7 @@
     "src/content/navigation.js",
     "src/content/scraper.js",
     "src/content/posting.js",
+    "src/content/account.js",
     "src/content/content.js"
   ];
 

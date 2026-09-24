@@ -31,14 +31,15 @@ ke satu namespace: **`globalThis.FBAP`**.
 ```
 Background : shared/config → shared/random → shared/time → shared/storage
              → shared/materialkey → media-store → state → power → messaging
-             → tabs → scan → scheduler   (via importScripts)
+             → tabs → account → scan → scheduler   (via importScripts)
 
 Content    : shared/config → shared/random → shared/time → shared/spintax
              → selectors → dom → stealth → media → navigation → scraper
-             → posting → content                (urutan sama di manifest.json)
+             → posting → account → content      (urutan sama di manifest.json)
 
 Dashboard  : shared/config → shared/time → shared/storage → shared/materialkey
-             → state → ui → materials → settings → groups → controls → main
+             → state → ui → materials → settings → groups → controls
+             → account → main
 ```
 
 `shared/random.js` dan `shared/spintax.js` sengaja tidak dimuat di dashboard
@@ -66,6 +67,7 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `SET_VIEW`                     | dashboard → background | `showFbTab`                                                          | Set mode tampilan tab FB                                                                                                                                                                                                                                                                                                               |
 | `VIEW_FB_TAB`                  | dashboard → background | –                                                                    | Fokus/buka tab FB                                                                                                                                                                                                                                                                                                                      |
 | `OPEN_COMPOSER`                | dashboard → background | –                                                                    | Uji jalur navigasi home → grup → composer (tab FB difokuskan selama proses, lalu fokus balik ke dashboard)                                                                                                                                                                                                                             |
+| `GET_ACCOUNT_NAME`             | dashboard → background | –                                                                    | Deteksi nama akun FB yang sedang login. Background membuka **tab deteksi SEMENTARA** `tabs.create(FB_HOME, active:false)` → `waitTabLoaded` → settle → kirim `GET_ACCOUNT_NAME` ke content script (fallback `ensureContentScript` lalu kirim ulang) → tulis `STORAGE.ACCOUNT_NAME` → `tabs.remove()` + `focusDashboard()` di `finally`. Balas `{ok, name}` / `{ok:false, error, busy?}`. Tipe yang SAMA dipakai background → content script (`content/account.js`) untuk membaca DOM   |
 | `BACK_TO_DASHBOARD`            | dashboard → background | –                                                                    | Fokus balik ke tab dashboard                                                                                                                                                                                                                                                                                                           |
 | `LOG` / `STATE` / `QUEUE_INFO` | background → dashboard | teks log / running / sisa antrean                                    | Update UI realtime                                                                                                                                                                                                                                                                                                                     |
 
@@ -88,6 +90,7 @@ tidak ada tipe pesan lama yang hilang.
 | `status`                    | `{running}` — dipulihkan/dibersihkan oleh `scheduler.getStatus()`, karena kunci ini bisa tertinggal bila sesi berakhir tanpa `stopPosting()` | background (messaging.setRunning, scheduler.getStatus)    |
 | `postingLogs`               | maksimal 500 baris log terakhir; `[]` = Live Log bersih (lihat §8)                                                                                                              | background (messaging.log), dashboard (controls.clearLog)                                |
 | `ui`                        | `{showFbTab}`                                                                                                                                | dashboard & background                                    |
+| `accountName`               | `{name, checkedAt, auto?}` — nama akun FB yang dipakai sebagai filter materi; `auto:true` = hasil deteksi background, tanpa `auto` = diketik manual (legacy: string langsung) | background (account.detectAccount), dashboard (controls, account) |
 | `groups` / `selectedGroups` | data grup (fitur scraping nonaktif)                                                                                                          | dashboard (groups)                                        |
 | `sellGroups`                | `{groupUrl: {at, name}}` — label permanen "grup jual-beli" (hanya tombol "Jual sesuatu", tanpa kolom posting); dilewati di `startPosting`, di-uncheck otomatis; dihapus hanya via tombol "Hapus label jual-beli" | background (handleSkipSellGroup), dashboard (applySellGroupMarked, btnClearSell, btnDeleteGroups) |
 
@@ -176,6 +179,7 @@ user mengklik atau tidak.
 | `background/power.js`     | keep-awake                                                                                             | —                          |
 | `background/messaging.js` | `log`, `setRunning`, `broadcastQueueInfo`                                                              | navigasi tab               |
 | `background/tabs.js`      | tab FB/dashboard, injeksi content script, `sendToContent`                                              | mengubah antrean           |
+| `background/account.js`   | deteksi akun login via tab deteksi sementara (`detectAccount`) + simpan `STORAGE.ACCOUNT_NAME`          | akses DOM Facebook, mengubah antrean |
 | `background/scheduler.js` | antrean + alarm + `processNextPost` + `getStatus` (pemulihan status basi) + uji `openComposerFromHome` | akses DOM Facebook         |
 | `content/selectors.js`    | konstanta selektor                                                                                     | logika                     |
 | `content/dom.js`          | penunggu & pencari elemen                                                                              | klik aksi bisnis           |
@@ -184,12 +188,14 @@ user mengklik atau tidak.
 | `content/navigation.js`   | alur home → grup                                                                                       | posting                    |
 | `content/scraper.js`      | scraper grup                                                                                           | posting                    |
 | `content/posting.js`      | `openComposer()` (buka composer) + eksekusi posting (mode autoposting/manual via parameter `autoPost`) | navigasi                   |
+| `content/account.js`      | baca NAMA akun login dari DOM (`getAccountName`, `pickAccountName`)                                    | menyentuh `chrome.*`       |
 | `dashboard/state.js`      | state UI                                                                                               | DOM                        |
 | `dashboard/ui.js`         | `$`, `escapeHtml`, `addLog`, `setStatus`                                                               | data                       |
 | `dashboard/materials.js`  | import materi & media                                                                                  | kontrol running            |
 | `dashboard/settings.js`   | form pengaturan                                                                                        | antrean                    |
 | `dashboard/groups.js`     | tabel & pencarian grup                                                                                 | antrean                    |
-| `dashboard/controls.js`   | tombol start/stop, checkbox autoposting, uji buka composer, `syncStatus` awal, tab FB, event realtime  | render tabel               |
+| `dashboard/controls.js`   | tombol start/stop, checkbox autoposting, uji buka composer, `syncStatus` awal, tab FB, event realtime, textbox nama akun (ketik manual) | render tabel               |
+| `dashboard/account.js`    | deteksi akun otomatis saat dashboard dibuka + tombol ↻ (deteksi ulang)                                 | render tabel, menulis storage langsung |
 | `dashboard/main.js`       | init + catch error global                                                                              | logika fitur               |
 
 ## 7. Checklist Menambah / Mengubah Modul
@@ -243,6 +249,34 @@ user mengklik atau tidak.
   berbasis jumlah tab. Tab autoposting tidak pernah masuk pool;
   `findExistingFbTab()` mengecualikan pool manual agar adopsi mode auto tidak
   membajak composer manual.
+
+- **Deteksi akun FB = TAB DETEKSI SEMENTARA (`active:false`) yang selalu
+  ditutup — bukan reuse `postTab`.** Nama akun yang sedang login dibaca dari DOM
+  halaman Facebook oleh `content/account.js` (adaptasi ekstensi rujukan
+  `assets/fb-akun-detector`: anchor `aria-label` "Linimasa/Timeline <Nama>" →
+  link yang mengarah ke PROFIL SENDIRI → `img[alt^="Foto profil"]` → kontrol
+  berlabel; setiap kandidat disaring daftar label generik + batas 60 karakter,
+  dan prefix "Linimasa/Foto profil" dipotong), lalu diorkestrasi
+  `background/account.js`: `chrome.tabs.create(FB_HOME, active:false)` →
+  `waitTabLoaded` → settle → `GET_ACCOUNT_NAME` (fallback `ensureContentScript`
+  bila content belum terpasang) → tulis `STORAGE.ACCOUNT_NAME`
+  `{name, checkedAt, auto:true}` → `chrome.tabs.remove()` + `focusDashboard()`
+  di `finally`. Alasan TIDAK memakai ulang tab posting: (a) deteksi dipicu
+  otomatis saat dashboard dibuka sehingga bisa bertabrakan dengan composer mode
+  manual yang sedang menunggu klik user atau dengan navigasi batch berjalan;
+  (b) umur tab deteksi sangat pendek dan selalu ditutup, jadi tidak ada tab
+  menumpuk (kontrak anti-tab-numpuk §5 tetap berlaku untuk posting);
+  (c) `active:false` menjaga FOKUS TETAP DI DASHBOARD — user tidak dipindahkan
+  dari dashboard saat deteksi berjalan. Polling DOM dilakukan di CONTENT script
+  (`LIMITS.ACCOUNT_DETECT_TRIES` × `ACCOUNT_DETECT_INTERVAL_MS` = 10s) karena
+  service worker MV3 tidak boleh menahan timer panjang; guard memori `detecting`
+  menolak deteksi dobel (klik ↻ beruntun). Tiga lapis pengisian nama akun:
+  OTOMATIS saat dashboard dibuka (`dashboard.account.detectOnStartup()` dari
+  `main.js`) → tombol ↻ (`btnRefreshAccount`, deteksi ulang manual) → KETIK
+  MANUAL (handler lama di `dashboard/controls.js`, backstop terakhir). Hasil
+  deteksi TIDAK PERNAH menimpa ketikan manual yang datang belakangan, dan
+  deteksi gagal TIDAK mengosongkan nama lama (filter materi tetap jalan) —
+  hanya tick amber + satu baris log peringatan.
 
 - **Blob media wajib persisten di IndexedDB sesi (`background/media-store.js`)
   dan media yang hilang = STOP TOTAL, bukan posting teks diam-diam.**
@@ -569,7 +603,7 @@ sehingga picker "Tambahkan grup" tidak pernah dibuka), paritas nama fungsi & lit
 `document`) untuk ketiga konteks, pemulihan status basi (`GET_STATUS`
 mereset sesi yang sudah mati sehingga tombol **Mulai Posting** tetap bisa diklik),
 serta uji rantai navigasi `home → grup → composer` di atas DOM Facebook tiruan
-(urutan klik natural, grup pertama sidebar, dan editor composer terdeteksi). `checkLogDebugTools()` mengunci kontrak Live Log: tombol Salin Log memakai clipboard API, seluruh jalur clear (tombol **Bersihkan Log** + auto-clear **Mulai Posting**) wajib lewat `clearLog()` yang mengosongkan `#terminal` **dan** `postingLogs`, sementara listener `onChanged` melewati `newValue` kosong.
+(urutan klik natural, grup pertama sidebar, dan editor composer terdeteksi). `checkLogDebugTools()` mengunci kontrak Live Log: tombol Salin Log memakai clipboard API, seluruh jalur clear (tombol **Bersihkan Log** + auto-clear **Mulai Posting**) wajib lewat `clearLog()` yang mengosongkan `#terminal` **dan** `postingLogs`, sementara listener `onChanged` melewati `newValue` kosong. `checkAccountDetectWiring()` mengunci kontrak deteksi akun: MSG + `LIMITS` deteksi terdaftar, `content/account.js` dimuat tepat sebelum `content.js` (manifest == `CONTENT_SCRIPT_FILES`), tab deteksi dibuka `active:false` lalu ditutup + `focusDashboard()`, guard anti-dobel, urutan pemuatan dashboard (`controls.js` → `account.js` → `main.js`), textbox nama akun tetap bisa diketik manual, serta perilaku `pickAccountName()`/`getAccountName()` di DOM Facebook tiruan (prioritas timeline → avatar → kontrol berlabel, filter label generik & teks > 60 karakter).
 
 ## 10. 🛡️ FACEBOOK DOM AUTOMATION & ROBUSTNESS GUIDELINES
 

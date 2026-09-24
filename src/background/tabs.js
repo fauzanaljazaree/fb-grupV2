@@ -269,7 +269,10 @@
       untuk diadopsi jadi postTab bila ID tersimpan basi. Dashboard tab ikut
       ter-query karena startswith(DASH_URL); difilter di sini. Tab yang masuk
       pool manual JANGAN diadopsi — composer manual yang menunggu klik user
-      tidak boleh dibajak/di-navigasi-ulang oleh mode autoposting. */
+      tidak boleh dibajak/di-navigasi-ulang oleh mode autoposting. Tab deteksi
+      akun (`run.detectTabId`) juga dikecualikan karena tab itu berumur pendek
+      dan SELALU ditutup `background/account.js` — kalau diadopsi, tab posting
+      yang sedang dipakai bisa ikut tertutup. */
   async function findExistingFbTab() {
     try {
       await restoreManualTabs();
@@ -282,7 +285,8 @@
             t.url &&
             t.url.includes("facebook.com") &&
             !t.url.startsWith(DASH_URL) &&
-            !manualIds.has(t.id),
+            !manualIds.has(t.id) &&
+            t.id !== run.detectTabId,
         ) || null
       );
     } catch (e) {

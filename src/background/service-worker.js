@@ -25,6 +25,7 @@ importScripts(
   "power.js",
   "messaging.js",
   "tabs.js",
+  "account.js",
   "scan.js",
   "scheduler.js"
 );
@@ -39,6 +40,7 @@ importScripts(
   const { startPosting, stopPosting, processNextPost, getStatus, openComposerFromHome, ALARM_NAME } = FBAP.background.scheduler;
   const { openDashboard, focusDashboard, showFbTab } = FBAP.background.tabs;
   const { runScan, isScanActive } = FBAP.background.scan;
+  const { detectAccount } = FBAP.background.account;
 
   /* =========================================================
      MESSAGE ROUTER (dari dashboard)
@@ -84,6 +86,13 @@ importScripts(
           }
           runScan().catch(() => {});
           sendResponse({ ok: true, accepted: true });
+          break;
+        case MSG.GET_ACCOUNT_NAME:
+          /* Deteksi akun FB yang login: background membuka tab deteksi
+             sementara (non-aktif), membacanya lewat content script, lalu
+             menutupnya. Hasil disimpan ke STORAGE.ACCOUNT_NAME. */
+          if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;
+          sendResponse(await detectAccount());
           break;
         case MSG.BACK_TO_DASHBOARD:
           if (sender.tab && sender.tab.id) run.dashboardTabId = sender.tab.id;

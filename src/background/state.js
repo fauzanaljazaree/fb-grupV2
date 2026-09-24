@@ -28,6 +28,11 @@
     groupUrl: null,   // grup terakhir dipakai (info saja, bukan cache navigasi)
     groupName: null,
     postTabId: null,
+    /* ID tab deteksi akun yang SEDANG berjalan (dibuat & ditutup
+       background/account.js). Dipakai findExistingFbTab() sebagai pengecualian
+       adopsi: tab deteksi berumur pendek dan PASTI ditutup lagi, jadi tidak
+       boleh diadopsi menjadi postTab (posting bisa kehilangan tabnya). */
+    detectTabId: null,
     /* Pool tab mode manual (ID array, FIFO maks LIMITS.MAX_MANUAL_TABS).
        Dipersist ke STORAGE.POST_TAB_MANUAL_IDS; diubah HANYA via helper
        rememberManualTabs/restoreManualTabs/ensureManualPostTab di tabs.js. */
