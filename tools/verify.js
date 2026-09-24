@@ -652,7 +652,7 @@ function checkAutoPostWiring() {
 
   const sched = read("src/background/scheduler.js").replace(/\r/g, "");
 
-  /* Wiring checkbox "Posting Batch" (mode batch 1+9 vs satuan 1 grup/submit):
+  /* Wiring checkbox "Posting Batch" (mode batch 1+6 vs satuan 1 grup/submit):
      HTML -> controls.js (handler change + payload.settings.batchPost)
           -> scheduler (run.batchPost memotong antrean & mengosongkan extras)
           -> content (extraGroups kosong -> addExtraGroups tidak dipanggil). */
@@ -717,17 +717,17 @@ function checkAutoPostWiring() {
   const media = read("src/content/media.js").replace(/\r/g, "");
   report(/FALLBACK[\s\S]*?attachMedia\(mediaDataUrl/.test(media), "uploadMedia punya fallback attachMedia (dataURL rusak tetap terlampir)", "ok");
   const schedSrc = read("src/background/scheduler.js");
-  report(/EXECUTE_POST,[\s\S]*?LIMITS\.EXECUTE_POST_TIMEOUT_MS/.test(schedSrc.replace(/\r/g, "")), "Timeout EXECUTE_POST memakai LIMITS.EXECUTE_POST_TIMEOUT_MS (240s, batch 1+9)", /EXECUTE_POST_TIMEOUT_MS/.test(schedSrc) ? "ok" : "timeout lama");
+  report(/EXECUTE_POST,[\s\S]*?LIMITS\.EXECUTE_POST_TIMEOUT_MS/.test(schedSrc.replace(/\r/g, "")), "Timeout EXECUTE_POST memakai LIMITS.EXECUTE_POST_TIMEOUT_MS (240s, batch 1+6)", /EXECUTE_POST_TIMEOUT_MS/.test(schedSrc) ? "ok" : "timeout lama");
 }
 
-/* ---------- 9b. WIRING BATCH 1+9 GRUP (picker "Tambahkan grup") ----------
-   1 submit menjangkau s.d. 10 grup: grup utama dinavigasi natural, s.d. 9
+/* ---------- 9b. WIRING BATCH 1+6 GRUP (picker "Tambahkan grup") ----------
+   1 submit menjangkau s.d. 7 grup: grup utama dinavigasi natural, s.d. 6
    tambahan dicentang via picker "Tambahkan grup" di composer. Alur wajib:
    media -> caption -> tambah grup -> submit; hasil per grup (added/failed)
    ditandai satu per satu di tabel dashboard (GROUP_RESULT per URL). */
 function checkExtraGroupsWiring() {
   const config = read("src/shared/config.js").replace(/\r/g, "");
-  report(/EXTRA_GROUPS_PER_POST:\s*9/.test(config) && /EXECUTE_POST_TIMEOUT_MS:\s*\d+/.test(config) && /ADD_GROUPS_TIMEOUT_MS:\s*\d+/.test(config) && /PICKER_SCROLL_PASSES:\s*\d+/.test(config) && /PICKER_STUCK_LIMIT:\s*\d+/.test(config) && /PICKER_SEARCH_TIMEOUT_MS:\s*\d+/.test(config), "LIMITS batch: EXTRA_GROUPS_PER_POST=9 + timeout EXECUTE_POST/picker + batas scroll di config.js", "ok");
+  report(/EXTRA_GROUPS_PER_POST:\s*6/.test(config) && /EXECUTE_POST_TIMEOUT_MS:\s*\d+/.test(config) && /ADD_GROUPS_TIMEOUT_MS:\s*\d+/.test(config) && /PICKER_SCROLL_PASSES:\s*\d+/.test(config) && /PICKER_STUCK_LIMIT:\s*\d+/.test(config) && /PICKER_SEARCH_TIMEOUT_MS:\s*\d+/.test(config), "LIMITS batch: EXTRA_GROUPS_PER_POST=6 + timeout EXECUTE_POST/picker + batas scroll di config.js", "ok");
 
   const selectors = read("src/content/selectors.js").replace(/\r/g, "");
   report(/ADD_GROUPS_BUTTON_KW[\s\S]*?GROUP_PICKER_TITLE_KW[\s\S]*?GROUP_PICKER_DONE_KW/.test(selectors) && /GROUP_PICKER_SEARCH_KW/.test(selectors), "Selektor picker (keyword ID+EN) terpusat di selectors.js (search-first)", "ok");
@@ -757,7 +757,7 @@ function checkExtraGroupsWiring() {
   report(/pickOneGroupBySearch[\s\S]*?typePickerSearch[\s\S]*?PICKER_SEARCH_TIMEOUT_MS/.test(posting) && /execCommand\("insertText", false, ch\)/.test(posting), "Search-first: ketik nama per karakter di kolom Cari grup + verifikasi value", "ok");
 
   const sched = read("src/background/scheduler.js").replace(/\r/g, "");
-  report(/1 \+ LIMITS\.EXTRA_GROUPS_PER_POST/.test(sched) && /run\.batchPost \? 1 \+ LIMITS\.EXTRA_GROUPS_PER_POST : 1/.test(sched) && /run\.groups\.slice\(/.test(sched) && /: \[\]/.test(sched), 'startPosting: antrean per batch {mi, gi, extras} — batch 1+9 saat "Posting Batch" aktif, extras [] saat nonaktif', "ok");
+  report(/1 \+ LIMITS\.EXTRA_GROUPS_PER_POST/.test(sched) && /run\.batchPost \? 1 \+ LIMITS\.EXTRA_GROUPS_PER_POST : 1/.test(sched) && /run\.groups\.slice\(/.test(sched) && /: \[\]/.test(sched), 'startPosting: antrean per batch {mi, gi, extras} — batch 1+6 saat "Posting Batch" aktif, extras [] saat nonaktif', "ok");
   report(/extraGroups: extras,/.test(sched), "EXECUTE_POST mengirim extraGroups ke content script", "ok");
   report(/markGroup\(ex\.url, true, mi, exGi\)[\s\S]*?markGroup\(ex\.url, false, mi, exGi,/.test(sched), "Hasil per grup tambahan ditandai ✅/❌ satu per satu (markGroup per URL + gi matriks)", "ok");
   report(/markGroup\(group\.url, true, mi, gi\)/.test(sched), "Grup utama ikut ditandai di tabel dashboard", "ok");

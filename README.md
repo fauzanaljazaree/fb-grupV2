@@ -69,8 +69,8 @@ fbGrup-AutoPosting/
    nama akun manual sebagai cadangan terakhir.
 4. Import materi (Excel/CSV kolom `Caption` & `Media_Name`), pilih folder media,
    lalu tekan **Mulai Posting**. Checkbox **Posting Batch** menentukan cakupan
-   tiap submit: **dicentang (default)** — 1 submit menjangkau s.d. 10 grup
-   (grup utama + s.d. 9 grup tambahan dicentang otomatis via picker
+   tiap submit: **dicentang (default)** — 1 submit menjangkau s.d. 7 grup
+   (grup utama + s.d. 6 grup tambahan dicentang otomatis via picker
    "Tambahkan grup" di composer); **tidak dicentang** — posting 1 grup
    1 submit, picker "Tambahkan grup" tidak pernah dibuka (lebih tahan bila
    picker sering gagal, tapi eksekusi lebih lama). Checkbox **autoposting**
@@ -117,7 +117,7 @@ node tools/verify.js
 Memeriksa (123 check): sintaks semua file JS, kode mati, konsistensi id DOM
 dashboard, sinkronisasi `manifest.json` ↔ `FBAP.config.CONTENT_SCRIPT_FILES`,
 urutan `<script>` dashboard, konstanta pesan, wiring checkbox **autoposting**
-(mode auto vs manual 10 detik) & checkbox **Posting Batch** (batch 1+9 grup
+(mode auto vs manual 10 detik) & checkbox **Posting Batch** (batch 1+6 grup
 via picker "Tambahkan grup" vs 1 grup 1 submit tanpa picker), paritas nama
 fungsi & tipe pesan
 dengan versi sebelum refactor (`backups/pre-refactor/`), smoke test pemuatan

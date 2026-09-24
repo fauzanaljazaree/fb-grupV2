@@ -7,7 +7,7 @@
    Alur BARU (materi-luar x grup-dalam): startPosting -> scheduleNext ->
          onAlarm -> processNextPost -> scheduleNext (berulang).
    Tiap item antrean = {mi, gi, extras}. Checkbox "Posting Batch" dashboard:
-     AKTIF   -> extras berisi s.d. 9 grup tambahan (1 submit -> 10 grup
+     AKTIF   -> extras berisi s.d. 6 grup tambahan (1 submit -> 7 grup
                 via picker "Tambahkan grup" di composer).
      NONAKTIF-> extras selalu kosong: 1 grup 1 submit, picker tidak dibuka.
    Navigasi natural dilakukan SETIAP langkah (cari grup target di sidebar
@@ -98,9 +98,9 @@
     /* Default "Tampilkan tab FB saat posting" = AKTIF (checkbox dashboard
        tercentang secara default); hanya dimatikan bila eksplisit false. */
     run.showFbTab = settings.showFbTab !== false;
-    /* BATCH 1+9 (checkbox "Posting Batch" dashboard): saat batchPost aktif,
-       1 submit menjangkau s.d. 10 grup — grup pertama batch = grup utama
-       (dinavigasi natural via sidebar), sisanya (s.d. 9) = grup tambahan
+    /* BATCH 1+6 (checkbox "Posting Batch" dashboard): saat batchPost aktif,
+       1 submit menjangkau s.d. 7 grup — grup pertama batch = grup utama
+       (dinavigasi natural via sidebar), sisanya (s.d. 6) = grup tambahan
        yang dicentang via picker "Tambahkan grup" di composer (fitur
        bawaan FB). Saat NONAKTIF, tiap grup = batch satuan tanpa extras:
        posting 1 grup 1 submit, picker tidak pernah dibuka (aman bila

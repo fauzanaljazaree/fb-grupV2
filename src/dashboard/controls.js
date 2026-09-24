@@ -196,7 +196,7 @@
     try { dashboard.groups.resetResults(); } catch (e) { /* abaikan */ }
 
     const batchPost = $("chkBatchPost").checked;
-    addLog(`Menjalankan posting ${State.materials.length} materi x ${targetGroups.length} grup = ${State.materials.length * targetGroups.length} posting (${batchPost ? "batch: 1 submit s.d. 10 grup" : "satuan: 1 grup 1 submit"}).`, "info");
+    addLog(`Menjalankan posting ${State.materials.length} materi x ${targetGroups.length} grup = ${State.materials.length * targetGroups.length} posting (${batchPost ? "batch: 1 submit s.d. 7 grup" : "satuan: 1 grup 1 submit"}).`, "info");
 
     const res = await sendMsg({
       type: MSG.START_POSTING,
@@ -303,8 +303,8 @@
   });
 
   /* ------- Checkbox "Posting Batch" -------
-     checked   -> workflow 1+9: 1 submit menjangkau s.d. 10 grup
-                  (grup utama dinavigasi natural + s.d. 9 tambahan
+     checked   -> workflow 1+6: 1 submit menjangkau s.d. 7 grup
+                  (grup utama dinavigasi natural + s.d. 6 tambahan
                   dicentang via picker "Tambahkan grup").
      unchecked -> 1 grup 1 submit: setiap grup dinavigasi natural dan
                   diposting SATU-SATU; picker "Tambahkan grup" tidak
@@ -316,7 +316,7 @@
     State.settings.batchPost = batch;
     await setStrict({ [STORAGE.SETTINGS]: { ...State.settings, batchPost: batch } }).catch(() => {});
     addLog(batch
-      ? "Posting Batch AKTIF: 1 submit menjangkau s.d. 10 grup via picker \"Tambahkan grup\"."
+      ? "Posting Batch AKTIF: 1 submit menjangkau s.d. 7 grup via picker \"Tambahkan grup\"."
       : "Posting Batch NONAKTIF: posting 1 grup 1 submit — picker \"Tambahkan grup\" tidak dipakai.", "info");
   });
 

@@ -19,8 +19,8 @@
       cooldownEvery: 5,
       cooldownMinutes: 15,
       autoPost: true,
-      /* Posting Batch: true = 1 submit -> s.d. 10 grup via picker
-         "Tambahkan grup" (perilaku 1+9); false = 1 grup 1 submit,
+      /* Posting Batch: true = 1 submit -> s.d. 7 grup via picker
+         "Tambahkan grup" (perilaku 1+6); false = 1 grup 1 submit,
          picker tidak pernah dibuka. Default: true (kompatibel lama). */
       batchPost: true
     }
@@ -137,9 +137,11 @@
        bagi user untuk klik tombol Posting sendiri sebelum alur lanjut. */
     MANUAL_POST_WINDOW_MS: 10000,
     /* Tambahan grup via picker "Tambahkan grup" composer: FB membatasi
-       "Posting hingga ke 9 grup yang ada Anda di dalamnya" per submit. */
-    EXTRA_GROUPS_PER_POST: 9,
-    /* Timeout EXECUTE_POST naik: batch 1+9 butuh 9x (search + centang)
+       "Posting hingga ke 9 grup yang ada Anda di dalamnya" per submit,
+       tetapi ekstensi membatasi sendiri s.d. 6 tambahan (1+6) agar
+       batch lebih kecil dan tahan gagal. */
+    EXTRA_GROUPS_PER_POST: 6,
+    /* Timeout EXECUTE_POST: batch 1+6 butuh 6x (search + centang)
        di picker + verifikasi caption setelah re-render Lexical. */
     EXECUTE_POST_TIMEOUT_MS: 240000,
     /* Picker "Tambahkan grup": tunggu dialog + kolom search.

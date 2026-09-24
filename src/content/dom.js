@@ -285,7 +285,7 @@
     return null;
   }
 
-  /* ---------- PICKER "TAMBAHKAN GRUP" (workflow 1 posting -> 10 grup) ----------
+  /* ---------- PICKER "TAMBAHKAN GRUP" (workflow 1 posting -> 7 grup) ----------
      Semua finder di sini HANYA pembaca elemen (guideline §7): logika klik/
      urutan ada di posting.js. Baseline: teks dinormalisasi + case-insensitive. */
 

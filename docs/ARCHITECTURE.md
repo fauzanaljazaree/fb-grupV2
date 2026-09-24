@@ -56,7 +56,7 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `PING`                         | background → content   | –                                                                    | Cek content script terpasang (`{ok:true,pong:true}`)                                                                                                                                                                                                                                                                                   |
 | `NAV_HOME_TO_GROUP`            | background → content   | –                                                                    | Navigasi natural, balas `{groupUrl, groupName}`                                                                                                                                                                                                                                                                                        |
 | `NAV_HOME_TO_COMPOSER`         | background → content   | –                                                                    | Navigasi natural + buka composer, balas `{groupUrl, groupName, url}`                                                                                                                                                                                                                                                                   |
-| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 9 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed, addedNames}` (added/failed = url grup tambahan; addedNames = [{url, name, how}] nama baris picker yang tercentang, how = exact|fuzzy). Bila grup tidak punya kolom posting (hanya tombol "Jual sesuatu"), `openComposer()` melempar Error ber-prefix `SKIP_SELL_GROUP:` yang mengalir sebagai `error` |
+| `EXECUTE_POST`                 | background → content   | `autoPost, caption, mediaDataUrl, mediaMime, mediaName, extraGroups` | `postToGroup()`: inti media-dulu+caption → tambah s.d. 6 grup via picker "Tambahkan grup" (selalu otomatis, kedua mode) → (mode autoposting) klik Posting + verifikasi composer tertutup / (mode manual) tunggu `LIMITS.MANUAL_POST_WINDOW_MS` lalu lanjut tanpa klik — balas `{ok, added, failed, addedNames}` (added/failed = url grup tambahan; addedNames = [{url, name, how}] nama baris picker yang tercentang, how = exact|fuzzy). Bila grup tidak punya kolom posting (hanya tombol "Jual sesuatu"), `openComposer()` melempar Error ber-prefix `SKIP_SELL_GROUP:` yang mengalir sebagai `error` |
 | `SELL_GROUP_MARKED`            | background → dashboard | `{url, name}`                                                        | Grup terdeteksi jual-beli: dashboard me-uncheck barisnya realtime + badge 🏷️ (lihat §8) |
 | `EXECUTE_SCRAPE`               | background → content   | –                                                                    | Scraper daftar grup mode lama (scroll window)                                                                                                                                                                                                                                                                                          |
 | `START_SCAN`                   | dashboard → background | –                                                                    | Mulai scan sidebar /groups/feed/ pada tab sementara. Guard `scanStatus` anti-dobel; balas `{ok, accepted}` tanpa menunggu hasil — hasil dibaca dashboard via `storage.onChanged` pada kunci `scanStatus`/`groups`. Orkestrasi di `background/scan.js`                                                                                  |
@@ -515,15 +515,15 @@ lalu document) → `typeCaption()`.
   me-render "X mnt Y dtk" (`controls.formatCountdown`), pulih via `GET_STATUS`
   + `storage.onChanged(NEXT_POST_AT)` — tanpa tick dari background agar SW
   tetap bisa tidur di antara posting.
-- **Batch 1+9 grup per submit (picker "Tambahkan grup") — OPSIONAL via
+- **Batch 1+6 grup per submit (picker "Tambahkan grup") — OPSIONAL via
   checkbox "Posting Batch" (`settings.batchPost`, default AKTIF).**
   Antrean dibangun per batch `{mi, gi, extras}`:
   - batchPost aktif: grup pertama batch = grup utama yang dinavigasi
-    natural, sisanya (maks `LIMITS.EXTRA_GROUPS_PER_POST = 9`) dicentang
+    natural, sisanya (maks `LIMITS.EXTRA_GROUPS_PER_POST = 6`) dicentang
     via picker "Tambahkan grup" composer (fitur bawaan FB).
   - batchPost NONAKTIF: setiap grup jadi batch sendiri dengan `extras: []`
     — posting 1 grup 1 submit, picker TIDAK PERNAH dibuka. Motivasi:
-    satu kegagalan picker sebelumnya menghanguskan s.d. 10 grup sekaligus;
+    satu kegagalan picker sebelumnya menghanguskan s.d. 7 grup sekaligus;
     mode satuan membatasi blast radius ke 1 grup per kegagalan (eksekusi
     lebih lama, jeda antar-grup tetap `minDelay..maxDelay`).
   Search-FIRST di picker (temuan lapangan: enumerasi baris gagal karena

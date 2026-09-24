@@ -366,7 +366,7 @@
   }
 
   /* =========================================================
-     TAMBAHAN GRUP (picker "Tambahkan grup"): 1 posting -> 10 grup.
+     TAMBAHAN GRUP (picker "Tambahkan grup"): 1 posting -> 7 grup.
      Alur: klik tombol "+ Tambahkan grup" di header composer ->
      popup picker muncul -> ENUMERASI baris yang ter-render ->
      cocokkan nama grup langsung (skor: persis > contains > kata
