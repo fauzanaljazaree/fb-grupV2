@@ -3,7 +3,7 @@
    Alur (dipicu dashboard: saat dashboard dibuka, atau user menekan
    tombol ↻ di sebelah textbox nama akun):
 
-     tabs.create(FB_HOME, active:false)   <- TAB DETEKSI SEMENTARA
+     tabs.create(FB_HOME, active:false, pinned:true) <- TAB DETEKSI SEMENTARA
        -> waitTabLoaded -> settle render React
        -> GET_ACCOUNT_NAME ke content script (fallback: inject lalu ulang)
        -> tulis STORAGE.ACCOUNT_NAME = {name, checkedAt, auto:true}
@@ -14,7 +14,7 @@
      - menu deteksi dipicu user saat dashboard dibuka — memakai ulang tab
        postTab berisiko menghancurkan composer modal yang sedang menunggu
        klik user (mode manual) atau membatalkan navigasi batch berjalan;
-     - tab deteksi dibuka `active:false` supaya FOKUS TETAP DI DASHBOARD,
+     - tab deteksi dibuka `active:false` + `pinned:true`: FOKUS TETAP DI DASHBOARD dan tab tidak bisa ditutup tak sengaja,
        dan selalu ditutup di `finally` sehingga tidak ada tab menumpuk.
    ========================================================= */
 
@@ -54,7 +54,7 @@
     detecting = true;
     let tab = null;
     try {
-      tab = await chrome.tabs.create({ url: PAGES.FB_HOME, active: false, pinned: false });
+      /* Pinned + non-aktif: tab tidak mencuri fokus dan tombol tutupnya disembunyikan; tab tetap dihapus otomatis. */ tab = await chrome.tabs.create({ url: PAGES.FB_HOME, active: false, pinned: true });
       /* Catat ID tab deteksi: findExistingFbTab() mengecualikannya agar tab
          berumur pendek ini tidak diadopsi jadi postTab lalu ikut tertutup. */
       run.detectTabId = tab.id;
@@ -73,7 +73,7 @@
       await log(`Deteksi akun gagal: ${err}`, "warn");
       return { ok: false, error: err };
     } finally {
-      /* Tab deteksi TIDAK pernah ditinggal terbuka, apa pun hasilnya. */
+      /* Tab deteksi TIDAK pernah ditinggal terbuka, apa pun hasilnya; chrome.tabs.remove dapat menghapus tab pinned langsung. */
       if (tab && tab.id) {
         try { await chrome.tabs.remove(tab.id); } catch (e) { /* sudah tertutup user */ }
       }

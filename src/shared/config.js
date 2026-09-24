@@ -117,7 +117,7 @@
     SCAN_MAX_PASSES: 80,                  /* batas loop scroll sidebar */
     SCAN_MSG_TIMEOUT_MS: 120000,          /* timeout chrome.tabs.sendMessage scan */
     /* Deteksi akun FB yang sedang login (dashboard -> background):
-       tab deteksi SEMENTARA (active:false, selalu ditutup lagi).
+       tab deteksi SEMENTARA (active:false, pinned:true, selalu ditutup lagi).
        - ACCOUNT_TAB_TIMEOUT_MS : tunggu tab FB berstatus "complete"
        - ACCOUNT_SETTLE_MS      : jeda render React FB sebelum baca DOM
        - ACCOUNT_MSG_TIMEOUT_MS : timeout GET_ACCOUNT_NAME ke content script

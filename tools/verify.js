@@ -899,7 +899,7 @@ function checkLogDebugTools() {
 
 /* ---------- 12. DETEKSI AKUN FB (otomatis saat dashboard dibuka + tombol ↻) ----------
    Kontrak: dashboard minta lewat MSG.GET_ACCOUNT_NAME; background membuka TAB
-   DETEKSI SEMENTARA (active:false sehingga fokus tetap di dashboard, selalu
+   DETEKSI SEMENTARA (active:false + pinned:true sehingga fokus tetap di dashboard, tidak mudah ditutup tak sengaja, selalu
    ditutup lagi di finally) dan content script membaca DOM Facebook lewat
    content/account.js. Ketik manual di controls.js tetap jadi lapisan terakhir. */
 function makeFakeAccountDom(opts) {
@@ -957,7 +957,7 @@ async function checkAccountDetectWiring() {
     "ok",
   );
   report(
-    /chrome\.tabs\.create\(\{ url: PAGES\.FB_HOME, active: false, pinned: false \}\)/.test(bacc) &&
+    /chrome\.tabs\.create\(\{ url: PAGES\.FB_HOME, active: false, pinned: true \}\)/.test(bacc) &&
       /chrome\.tabs\.remove\(tab\.id\)/.test(bacc) &&
       /focusDashboard\(\)/.test(bacc),
     "background/account.js: tab deteksi dibuka active:false -> ditutup di finally -> fokus balik dashboard",
@@ -1051,7 +1051,7 @@ async function checkAccountDetectWiring() {
       /`GET_ACCOUNT_NAME`/.test(arch) &&
       /`accountName`/.test(arch) &&
       /tab deteksi SEMENTARA/.test(arch) &&
-      /active:false/.test(arch),
+      /active:false, pinned:true/.test(arch),
     "ARCHITECTURE.md: deteksi akun tercatat di §2 (urutan), §3 (MSG), §4 (kunci storage), §8 (tab sementara)",
     "ok",
   );

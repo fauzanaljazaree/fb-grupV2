@@ -67,7 +67,7 @@ memuat modul dengan urutan salah → dijaga oleh `tools/verify.js`.
 | `SET_VIEW`                     | dashboard → background | `showFbTab`                                                          | Set mode tampilan tab FB                                                                                                                                                                                                                                                                                                               |
 | `VIEW_FB_TAB`                  | dashboard → background | –                                                                    | Fokus/buka tab FB                                                                                                                                                                                                                                                                                                                      |
 | `OPEN_COMPOSER`                | dashboard → background | –                                                                    | Uji jalur navigasi home → grup → composer (tab FB difokuskan selama proses, lalu fokus balik ke dashboard)                                                                                                                                                                                                                             |
-| `GET_ACCOUNT_NAME`             | dashboard → background | –                                                                    | Deteksi nama akun FB yang sedang login. Background membuka **tab deteksi SEMENTARA** `tabs.create(FB_HOME, active:false)` → `waitTabLoaded` → settle → kirim `GET_ACCOUNT_NAME` ke content script (fallback `ensureContentScript` lalu kirim ulang) → tulis `STORAGE.ACCOUNT_NAME` → `tabs.remove()` + `focusDashboard()` di `finally`. Balas `{ok, name}` / `{ok:false, error, busy?}`. Tipe yang SAMA dipakai background → content script (`content/account.js`) untuk membaca DOM   |
+| `GET_ACCOUNT_NAME`             | dashboard → background | –                                                                    | Deteksi nama akun FB yang sedang login. Background membuka **tab deteksi SEMENTARA** `tabs.create(FB_HOME, active:false, pinned:true)` → `waitTabLoaded` → settle → kirim `GET_ACCOUNT_NAME` ke content script (fallback `ensureContentScript` lalu kirim ulang) → tulis `STORAGE.ACCOUNT_NAME` → `tabs.remove()` + `focusDashboard()` di `finally`. Balas `{ok, name}` / `{ok:false, error, busy?}`. Tipe yang SAMA dipakai background → content script (`content/account.js`) untuk membaca DOM   |
 | `BACK_TO_DASHBOARD`            | dashboard → background | –                                                                    | Fokus balik ke tab dashboard                                                                                                                                                                                                                                                                                                           |
 | `LOG` / `STATE` / `QUEUE_INFO` | background → dashboard | teks log / running / sisa antrean                                    | Update UI realtime                                                                                                                                                                                                                                                                                                                     |
 
@@ -250,14 +250,14 @@ user mengklik atau tidak.
   `findExistingFbTab()` mengecualikan pool manual agar adopsi mode auto tidak
   membajak composer manual.
 
-- **Deteksi akun FB = TAB DETEKSI SEMENTARA (`active:false`) yang selalu
+- **Deteksi akun FB = TAB DETEKSI SEMENTARA (`active:false, pinned:true`) yang selalu
   ditutup — bukan reuse `postTab`.** Nama akun yang sedang login dibaca dari DOM
   halaman Facebook oleh `content/account.js` (adaptasi ekstensi rujukan
   `assets/fb-akun-detector`: anchor `aria-label` "Linimasa/Timeline <Nama>" →
   link yang mengarah ke PROFIL SENDIRI → `img[alt^="Foto profil"]` → kontrol
   berlabel; setiap kandidat disaring daftar label generik + batas 60 karakter,
   dan prefix "Linimasa/Foto profil" dipotong), lalu diorkestrasi
-  `background/account.js`: `chrome.tabs.create(FB_HOME, active:false)` →
+  `background/account.js`: `chrome.tabs.create(FB_HOME, active:false, pinned:true)` →
   `waitTabLoaded` → settle → `GET_ACCOUNT_NAME` (fallback `ensureContentScript`
   bila content belum terpasang) → tulis `STORAGE.ACCOUNT_NAME`
   `{name, checkedAt, auto:true}` → `chrome.tabs.remove()` + `focusDashboard()`
@@ -267,7 +267,10 @@ user mengklik atau tidak.
   (b) umur tab deteksi sangat pendek dan selalu ditutup, jadi tidak ada tab
   menumpuk (kontrak anti-tab-numpuk §5 tetap berlaku untuk posting);
   (c) `active:false` menjaga FOKUS TETAP DI DASHBOARD — user tidak dipindahkan
-  dari dashboard saat deteksi berjalan. Polling DOM dilakukan di CONTENT script
+  dari dashboard saat deteksi berjalan; (d) `pinned:true` menyembunyikan tombol
+  tutup tab selama deteksi sehingga user tidak bisa menutupnya tak sengaja
+  (tab pinned tetap bisa dihapus via `chrome.tabs.remove`, jadi penutupan
+  otomatis di `finally` tidak terpengaruh). Polling DOM dilakukan di CONTENT script
   (`LIMITS.ACCOUNT_DETECT_TRIES` × `ACCOUNT_DETECT_INTERVAL_MS` = 10s) karena
   service worker MV3 tidak boleh menahan timer panjang; guard memori `detecting`
   menolak deteksi dobel (klik ↻ beruntun). Tiga lapis pengisian nama akun:
